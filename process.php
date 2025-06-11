@@ -16,11 +16,11 @@ $correctPin = '1234';
 
 
 switch ($_SESSION['ussd_state']) {
-    
+
     case 'check_balance':
         if ($input == '1') {
             $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
         } else {
             $response = "Invalid option. Please select:\n1. Back to main menu";
         }
@@ -90,7 +90,7 @@ switch ($_SESSION['ussd_state']) {
           
             $amount = $_SESSION['ussd_data']['amount'];
             $recipient = $_SESSION['ussd_data']['recipient'];
-            $_SESSION['ussd_state'] = 'start'; // Reset state to start
+            $_SESSION['ussd_state'] = 'start'; 
             $response = "You have successfully transferred GHS {$amount} to {$recipient}!\n\n1. Back to main menu";
         } else {
            
@@ -98,6 +98,25 @@ switch ($_SESSION['ussd_state']) {
             $response = "Wrong PIN provided. Returning to main menu.\n\n1. Back to main menu";
         }
         break;
+
+    case 'start':
+            switch ($input) {
+                case '1':
+                    
+                    $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+                    break;
+                case '2':
+                    $_SESSION['ussd_state'] = 'transfer_money';
+                    $response = "Enter recipient's phone number:";
+                    break;
+                case '3':
+                    $_SESSION['ussd_state'] = 'buy_airtime';
+                    $response = "Enter phone number for airtime:";
+                    break;
+                default:
+                    $response = "Invalid option. Please try again:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+            }
+            break;
 
     case 'airtime_amount':
         if (is_numeric($input) && $input > 0) {
@@ -126,10 +145,10 @@ switch ($_SESSION['ussd_state']) {
 
 }
 
-// Update the display
+
 $_SESSION['display'] = $response;
 
-// Redirect back to the main page
+
 header('Location: index.php');
 exit;
 ?>
