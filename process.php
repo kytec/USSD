@@ -1,19 +1,17 @@
 <?php
 session_start();
-
+require_once 'db_connect.php';
 
 if (!isset($_SESSION['ussd_state'])) {
     $_SESSION['ussd_state'] = 'start';
     $_SESSION['ussd_data'] = [];
-    $_SESSION['pin_attempts'] = 0; 
+    $_SESSION['pin_attempts'] = 0;
+    $_SESSION['user_id'] = 1; // This should be set based on actual user authentication
 }
-
 
 $input = isset($_POST['ussd_input']) ? $_POST['ussd_input'] : '';
 
 $correctPin = '1234';
-
-
 
 switch ($_SESSION['ussd_state']) {
 
@@ -26,23 +24,24 @@ switch ($_SESSION['ussd_state']) {
         }
         break;
 
-
     case 'start':
         switch ($input) {
             case '1':
-                $_SESSION['ussd_state'] = 'pin_input'; 
-                $response = "Please enter your PIN code:";
-                break;
+                $_SESSION['ussd_state'] = 'pin_input';
+                header('Location: check_balance.php');
+                exit;
             case '2':
                 $_SESSION['ussd_state'] = 'transfer_money';
-                $response = "Enter recipient's phone number:";
-                break;
+                header('Location: transfer_money.php');
+                exit;
             case '3':
                 $_SESSION['ussd_state'] = 'buy_airtime';
-                $response = "Enter phone number for airtime:";
-                break;
+                header('Location: buy_airtime.php');
+                exit;
             default:
-                $response = "Invalid option. Please try again:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+                $_SESSION['display'] = "Invalid option. Please try again:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+                header('Location: index.php');
+                exit;
         }
         break;
 
@@ -99,25 +98,6 @@ switch ($_SESSION['ussd_state']) {
         }
         break;
 
-    case 'start':
-            switch ($input) {
-                case '1':
-                    
-                    $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
-                    break;
-                case '2':
-                    $_SESSION['ussd_state'] = 'transfer_money';
-                    $response = "Enter recipient's phone number:";
-                    break;
-                case '3':
-                    $_SESSION['ussd_state'] = 'buy_airtime';
-                    $response = "Enter phone number for airtime:";
-                    break;
-                default:
-                    $response = "Invalid option. Please try again:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
-            }
-            break;
-
     case 'airtime_amount':
         if (is_numeric($input) && $input > 0) {
             $_SESSION['ussd_data']['airtime_amount'] = $input;
@@ -141,13 +121,9 @@ switch ($_SESSION['ussd_state']) {
         }
         break;
 
-   
-
 }
 
-
 $_SESSION['display'] = $response;
-
 
 header('Location: index.php');
 exit;
