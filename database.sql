@@ -1,11 +1,11 @@
 -- Create the database if it doesn't exist
 IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'ussd_db')
 BEGIN
-    CREATE DATABASE ussd_db;
+    CREATE DATABASE USSDServiceDB;
 END
 GO
 
-USE ussd_db;
+USE USSDServiceDB;
 GO
 
 -- Create users table
@@ -26,10 +26,11 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'transactions')
 BEGIN
     CREATE TABLE transactions (
         id INT IDENTITY(1,1) PRIMARY KEY,
-        sender_id INT NOT NULL,
+        sender_id INT NULL,
         recipient_phone VARCHAR(10) NOT NULL,
-        amount DECIMAL(10,2) NOT NULL,
+        amount DECIMAL(10,2) NULL,
         transaction_date DATETIME DEFAULT GETDATE(),
+        status VARCHAR(20) DEFAULT 'pending',
         CONSTRAINT FK_Transactions_Users FOREIGN KEY (sender_id) REFERENCES users(id)
     );
 END

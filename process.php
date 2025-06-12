@@ -1,130 +1,198 @@
 <?php
 session_start();
 require_once 'db_connect.php';
-
+ 
 if (!isset($_SESSION['ussd_state'])) {
     $_SESSION['ussd_state'] = 'start';
     $_SESSION['ussd_data'] = [];
     $_SESSION['pin_attempts'] = 0;
     $_SESSION['user_id'] = 1; // This should be set based on actual user authentication
 }
-
+ 
 $input = isset($_POST['ussd_input']) ? $_POST['ussd_input'] : '';
-
+ 
 $correctPin = '1234';
-
+ 
 switch ($_SESSION['ussd_state']) {
-
-    case 'check_balance':
-        if ($input == '1') {
-            $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
-        } else {
-            $response = "Invalid option. Please select:\n1. Back to main menu";
-        }
-        break;
-
+ 
     case 'start':
         switch ($input) {
             case '1':
-                $_SESSION['ussd_state'] = 'pin_input';
-                header('Location: check_balance.php');
-                exit;
+                $_SESSION['ussd_state'] = 'pin_for_balance_check';
+                $response = "Please enter your PIN code:";
+                break;
             case '2':
-                $_SESSION['ussd_state'] = 'transfer_money';
-                header('Location: transfer_money.php');
-                exit;
+                $_SESSION['ussd_state'] = 'enter_recipient';
+                $response = "Enter recipient number:";
+                break;
             case '3':
                 $_SESSION['ussd_state'] = 'buy_airtime';
                 header('Location: buy_airtime.php');
                 exit;
             default:
-                $_SESSION['display'] = "Invalid option. Please try again:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
-                header('Location: index.php');
-                exit;
+                $response = "Welcome to BRASSICA-PAY Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+                break;
         }
         break;
-
-    case 'pin_input':
+ 
+    case 'pin_for_balance_check':
         if ($input == $correctPin) {
-            $_SESSION['ussd_state'] = 'check_balance'; 
-            $_SESSION['pin_attempts'] = 0; 
-            $response = "Your current balance is: GHS 100.00\n\n1. Back to main menu";
+            try {
+                // Get user's balance from database
+                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
+                $stmt->execute([$_SESSION['user_id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($user) {
+                    $_SESSION['ussd_state'] = 'display_balance_then_back_to_main_menu';
+                    $_SESSION['pin_attempts'] = 0;
+                    $response = "Your current balance is: GHS " . number_format($user['balance'], 2) . "\n\n1. Back to main menu";
+                } else {
+                    $response = "Error retrieving balance. Please try again later.\n\n1. Back to main menu";
+                }
+            } catch (PDOException $e) {
+                $response = "Error retrieving balance: " . $e->getMessage() . "\n\n1. Back to main menu";
+            }
         } else {
-            $_SESSION['pin_attempts']++; 
+            $_SESSION['pin_attempts']++;
             if ($_SESSION['pin_attempts'] >= 3) {
-               
                 $response = "Too many incorrect attempts. Your session has been terminated.";
-                session_destroy(); 
+                session_destroy();
             } else {
                 $remainingAttempts = 3 - $_SESSION['pin_attempts'];
                 $response = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN code:";
             }
         }
         break;
-
-    case 'transfer_money':
+ 
+    case 'display_balance_then_back_to_main_menu':
+        if ($input == '1') {
+            session_destroy(); // Destroy the session to fully reset
+            session_start(); // Start a new session for a clean slate
+            // Re-initialize session variables as they would be at the very start
+            $_SESSION['ussd_state'] = 'start';
+            $_SESSION['ussd_data'] = [];
+            $_SESSION['pin_attempts'] = 0;
+            $_SESSION['user_id'] = 1;
+            $response = "Welcome to BRASSICA-PAY Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+        } else {
+            $response = "Invalid option. Please select:\n1. Back to main menu";
+        }
+        break;
+ 
+    case 'enter_recipient':
         if (preg_match('/^0[2-9][0-9]{8}$/', $input)) {
-            $_SESSION['ussd_data']['recipient'] = $input;
-            $_SESSION['ussd_state'] = 'transfer_amount';
-            $response = "Enter amount to transfer:";
+            try {
+                // Insert recipient number and sender_id into transaction table
+                $stmt = $pdo->prepare("INSERT INTO transactions (sender_id, recipient_phone) VALUES (?, ?)");
+                $stmt->execute([$_SESSION['user_id'], $input]);
+                $_SESSION['transaction_id'] = $pdo->lastInsertId();
+                
+                $_SESSION['ussd_data']['recipient_phone'] = $input; // Store for later use
+                
+                $_SESSION['ussd_state'] = 'enter_amount';
+                $response = "Enter amount to transfer:";
+            } catch (PDOException $e) {
+                $response = "Error saving recipient. Please try again:\nEnter recipient number:";
+            }
         } else {
             $response = "Invalid phone number. Please enter a valid number:";
         }
         break;
-
-    case 'transfer_amount':
+ 
+    case 'enter_amount':
         if (is_numeric($input) && $input > 0) {
-            $_SESSION['ussd_data']['amount'] = $input;
-            $_SESSION['ussd_state'] = 'transfer_pin_input'; 
-            $_SESSION['pin_attempts'] = 0; 
-            $response = "Please enter your PIN code to confirm the transfer:";
+            try {
+                // Check if user has sufficient balance
+                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
+                $stmt->execute([$_SESSION['user_id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($user && $user['balance'] >= $input) {
+                    // Update amount in transaction table
+                    $stmt = $pdo->prepare("UPDATE transactions SET amount = ? WHERE id = ?");
+                    $stmt->execute([$input, $_SESSION['transaction_id']]);
+                    
+                    $_SESSION['ussd_data']['amount'] = $input; // Store for later use
+                    
+                    $_SESSION['ussd_state'] = 'enter_pin';
+                    $response = "Enter your PIN:";
+                } else {
+                    $response = "Insufficient balance. Please enter a valid amount:";
+                }
+            } catch (PDOException $e) {
+                $response = "Error checking balance. Please try again:\nEnter amount to transfer:";
+            }
         } else {
             $response = "Invalid amount. Please enter a valid amount:";
         }
         break;
-
-    case 'transfer_pin_input':
+ 
+    case 'enter_pin':
         if ($input == $correctPin) {
-          
-            $amount = $_SESSION['ussd_data']['amount'];
-            $recipient = $_SESSION['ussd_data']['recipient'];
-            $_SESSION['ussd_state'] = 'start'; 
-            $response = "You have successfully transferred GHS {$amount} to {$recipient}!\n\n1. Back to main menu";
+            try {
+                $amount = $_SESSION['ussd_data']['amount'];
+                $recipient_phone = $_SESSION['ussd_data']['recipient_phone'];
+                
+                $pdo->beginTransaction();
+                
+                // Update sender's balance
+                $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
+                $stmt->execute([$amount, $_SESSION['user_id']]);
+                
+                // Update recipient's balance
+                $stmt = $pdo->prepare("UPDATE users SET balance = balance + ? WHERE phone = ?");
+                $stmt->execute([$amount, $recipient_phone]);
+                
+                // Update PIN in users table (as per instruction)
+                $stmt = $pdo->prepare("UPDATE users SET pin = ? WHERE id = ?");
+                $stmt->execute([$correctPin, $_SESSION['user_id']]);
+                
+                // Update transaction status
+                $stmt = $pdo->prepare("UPDATE transactions SET status = 'completed' WHERE id = ?");
+                $stmt->execute([$_SESSION['transaction_id']]);
+                
+                $pdo->commit();
+                
+                $_SESSION['ussd_state'] = 'transfer_success';
+                $response = "Transfer successful!\n\n1. Back to main menu";
+            } catch (PDOException $e) {
+                $pdo->rollBack();
+                $response = "Error processing transfer: " . $e->getMessage() . "\n\n1. Back to main menu";
+            }
         } else {
-           
-            $_SESSION['ussd_state'] = 'start'; 
-            $response = "Wrong PIN provided. Returning to main menu.\n\n1. Back to main menu";
+            $_SESSION['pin_attempts']++;
+            if ($_SESSION['pin_attempts'] >= 3) {
+                $response = "Too many incorrect attempts. Your session has been terminated.";
+                session_destroy();
+            } else {
+                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
+                $response = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:";
+            }
         }
         break;
-
-    case 'airtime_amount':
-        if (is_numeric($input) && $input > 0) {
-            $_SESSION['ussd_data']['airtime_amount'] = $input;
-            $_SESSION['ussd_state'] = 'airtime_confirm';
-            $response = "Confirm airtime purchase of GHS {$input} for {$_SESSION['ussd_data']['airtime_number']}\n1. Confirm\n2. Cancel";
-        } else {
-            $response = "Invalid amount. Please enter a valid amount:";
-        }
-        break;
-
-    case 'airtime_confirm':
+ 
+    case 'transfer_success':
         if ($input == '1') {
-            
             $_SESSION['ussd_state'] = 'start';
-            $response = "Airtime purchase successful!\n\n1. Back to main menu";
-        } elseif ($input == '2') {
-            $_SESSION['ussd_state'] = 'start';
-            $response = "Airtime purchase cancelled.\n\n1. Back to main menu";
+            $response = "Welcome to BRASSICA-PAY Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
         } else {
-            $response = "Invalid option. Please select:\n1. Confirm\n2. Cancel";
+            $response = "Invalid option. Please select:\n1. Back to main menu";
         }
         break;
-
+ 
+    case 'buy_airtime':
+        // You may need to add further logic here for airtime purchase similar to transfer money flow
+        // For now, it will just exit if the user selects it.
+        header('Location: buy_airtime.php');
+        exit;
+ 
 }
-
+ 
 $_SESSION['display'] = $response;
-
+ 
 header('Location: index.php');
 exit;
 ?>
+ 
+ 
