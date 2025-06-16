@@ -75,4 +75,4 @@ switch ($_SESSION['ussd_state']) {
 
 header('Location: index.php');
 exit;
-?> 
+?>

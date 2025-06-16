@@ -1,5 +1,5 @@
 -- Create the database if it doesn't exist
-IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'ussd_db')
+IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'USSDServiceDB')
 BEGIN
     CREATE DATABASE USSDServiceDB;
 END
@@ -15,7 +15,7 @@ BEGIN
         id INT IDENTITY(1,1) PRIMARY KEY,
         phone VARCHAR(10) UNIQUE NOT NULL,
         pin VARCHAR(255) NOT NULL,
-        balance DECIMAL(10,2) DEFAULT 0.00,
+        balance DECIMAL(10,2) DEFAULT 900.00,
         created_at DATETIME DEFAULT GETDATE()
     );
 END
@@ -50,9 +50,57 @@ BEGIN
 END
 GO
 
+-- Create fixed_deposits table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'fixed_deposits')
+BEGIN
+    CREATE TABLE fixed_deposits (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        duration_months INT NOT NULL,
+        interest_rate DECIMAL(5,2) NOT NULL,
+        start_date DATETIME DEFAULT GETDATE(),
+        maturity_date DATETIME NOT NULL,
+        status VARCHAR(20) DEFAULT 'active',
+        CONSTRAINT FK_FixedDeposits_Users FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+END
+GO
+
+-- Create treasury_bills_investments table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'treasury_bills_investments')
+BEGIN
+    CREATE TABLE treasury_bills_investments (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        purchase_date DATETIME DEFAULT GETDATE(),
+        maturity_date DATETIME NOT NULL,
+        interest_rate DECIMAL(5,2) NOT NULL,
+        status VARCHAR(20) DEFAULT 'active',
+        CONSTRAINT FK_TreasuryBills_Users FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+END
+GO
+
+-- Create mutual_funds_investments table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'mutual_funds_investments')
+BEGIN
+    CREATE TABLE mutual_funds_investments (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        investment_date DATETIME DEFAULT GETDATE(),
+        fund_name VARCHAR(50) NOT NULL,
+        status VARCHAR(20) DEFAULT 'active',
+        CONSTRAINT FK_MutualFunds_Users FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+END
+GO
+
 -- Insert a test user if not exists
 IF NOT EXISTS (SELECT * FROM users WHERE phone = '0200000000')
 BEGIN
-    INSERT INTO users (phone, pin, balance) VALUES ('0200000000', '1234', 1000.00);
+    INSERT INTO users (phone, pin, balance) VALUES ('0200000000', '1234', 900.00);
 END
 GO 

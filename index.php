@@ -58,7 +58,7 @@
             if (isset($_SESSION['display'])) {
                 echo htmlspecialchars($_SESSION['display']);
             } else {
-                echo "Welcome to BRASSICA-PAY Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime";
+                echo "Welcome to BRASSICA-PAY Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
             }
             ?>
         </div>

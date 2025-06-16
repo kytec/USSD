@@ -44,4 +44,4 @@ if ($_SESSION['ussd_state'] === 'pin_input') {
 
 header('Location: index.php');
 exit;
-?> 
+?>
