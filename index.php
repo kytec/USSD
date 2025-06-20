@@ -64,8 +64,8 @@
         </div>
         <form action="process.php" method="POST" class="ussd-input">
             <input type="text" name="ussd_input" placeholder="Enter your choice" required>
-            <button type="submit">Send</button> 
-            <button type="submit">Cancel</button>
+            <button type="submit">Send</button>
+            <button type="submit" name="action" value="cancel">Cancel</button>
         </form>
     </div>
 </body>

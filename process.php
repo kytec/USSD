@@ -38,20 +38,21 @@ switch ($_SESSION['ussd_state']) {
         switch ($input) {
             case '1':
                 $_SESSION['ussd_state'] = 'pin_for_balance_check';
-                $response = "Please enter your PIN code:";
+                $response = "Please enter your PIN code:\n#. Back";
                 break;
             case '2':
                 $_SESSION['ussd_state'] = 'select_network';
-                $response = "Select Network:\n1. MTN MobileMoney\n2. AirtelTigo Cash\n3. Telecel Cash";
+                $response = "Select Network:\n1. MTN MobileMoney\n2. AirtelTigo Cash\n3. Telecel Cash\n#. Back";
                 break;
             case '3':
                 $_SESSION['ussd_state'] = 'buy_airtime';
-                header('Location: buy_airtime.php');
-                exit;
+                unset($_SESSION['ussd_data']['airtime_step']);
+                $response = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+                break;
             case '4':
                 $_SESSION['ussd_state'] = 'meter_topup';
-                $response = "Enter meter number:\n#. Back";
-                break;
+                header('Location: meter_topup.php');
+                exit;
             case '5':
                 $_SESSION['ussd_state'] = 'investment';
                 $response = "Investment Options:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back\n\nSelect an option:";
@@ -94,13 +95,9 @@ switch ($_SESSION['ussd_state']) {
  
     case 'display_balance_then_back_to_main_menu':
         if ($input == '1') {
-            session_destroy(); // Destroy the session to fully reset
-            session_start(); // Start a new session for a clean slate
-            // Re-initialize session variables as they would be at the very start
             $_SESSION['ussd_state'] = 'start';
             $_SESSION['ussd_data'] = [];
             $_SESSION['pin_attempts'] = 0;
-            $_SESSION['user_id'] = 1;
             $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
         } else {
             $response = "Invalid option. Please select:\n1. Back to main menu";
@@ -108,76 +105,84 @@ switch ($_SESSION['ussd_state']) {
         break;
  
     case 'select_network':
-        switch ($input) {
-            case '1':
-                $_SESSION['ussd_data']['network'] = 'MTN';
-                $_SESSION['ussd_state'] = 'enter_recipient';
-                $response = "Enter MTN MobileMoney number:";
-                break;
-            case '2':
-                $_SESSION['ussd_data']['network'] = 'AirtelTigo';
-                $_SESSION['ussd_state'] = 'enter_recipient';
-                $response = "Enter AirtelTigo Cash number:";
-                break;
-            case '3':
-                $_SESSION['ussd_data']['network'] = 'Telecel';
-                $_SESSION['ussd_state'] = 'enter_recipient';
-                $response = "Enter Telecel Cash number:";
-                break;
-            default:
-                $response = "Invalid option. Please select:\n1. MTN MobileMoney\n2. AirtelTigo Cash\n3. Telecel Cash";
-                break;
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'start';
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+        } else {
+            switch ($input) {
+                case '1':
+                    $_SESSION['ussd_data']['network'] = 'MTN';
+                    $_SESSION['ussd_state'] = 'enter_recipient';
+                    $response = "Enter MTN MobileMoney number:\n#. Back";
+                    break;
+                case '2':
+                    $_SESSION['ussd_data']['network'] = 'AirtelTigo';
+                    $_SESSION['ussd_state'] = 'enter_recipient';
+                    $response = "Enter AirtelTigo Cash number:\n#. Back";
+                    break;
+                case '3':
+                    $_SESSION['ussd_data']['network'] = 'Telecel';
+                    $_SESSION['ussd_state'] = 'enter_recipient';
+                    $response = "Enter Telecel Cash number:\n#. Back";
+                    break;
+                default:
+                    $response = "Invalid option. Please select:\n1. MTN MobileMoney\n2. AirtelTigo Cash\n3. Telecel Cash\n#. Back";
+                    break;
+            }
         }
         break;
  
     case 'enter_recipient':
-        $isValidNumber = false;
-        $errorMessage = "";
-        $network = $_SESSION['ussd_data']['network'];
-
-        switch ($network) {
-            case 'MTN':
-                if (preg_match('/^(054|053|055|024|023|025|059)[0-9]{7}$/', $input)) {
-                    $isValidNumber = true;
-                } else {
-                    $errorMessage = "Invalid MTN MobileMoney number.";
-                }
-                break;
-            case 'AirtelTigo':
-                if (preg_match('/^(027|026|056|057)[0-9]{7}$/', $input)) {
-                    $isValidNumber = true;
-                } else {
-                    $errorMessage = "Invalid AirtelTigo Cash number.";
-                }
-                break;
-            case 'Telecel':
-                if (preg_match('/^(020|050)[0-9]{7}$/', $input)) {
-                    $isValidNumber = true;
-                } else {
-                    $errorMessage = "Invalid Telecel Cash number.";
-                }
-                break;
-            default:
-                $errorMessage = "Invalid network selected.";
-                break;
-        }
-
-        if ($isValidNumber) {
-            try {
-                // Insert recipient number and sender_id into transaction table
-                $stmt = $pdo->prepare("INSERT INTO transactions (sender_id, recipient_phone, network) VALUES (?, ?, ?)");
-                $stmt->execute([$_SESSION['user_id'], $input, $network]);
-                $_SESSION['transaction_id'] = $pdo->lastInsertId();
-                
-                $_SESSION['ussd_data']['recipient_phone'] = $input; // Store for later use
-                
-                $_SESSION['ussd_state'] = 'confirm_recipient';
-                $response = "Confirm recipient: " . $input . "\n1. Confirm\n#. Back";
-            } catch (PDOException $e) {
-                $response = "Error saving recipient. Please try again:\nEnter " . $network . " number:";
-            }
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'select_network';
+            $response = "Select Network:\n1. MTN MobileMoney\n2. AirtelTigo Cash\n3. Telecel Cash\n#. Back";
         } else {
-            $response = $errorMessage . "\nPlease enter a valid " . $network . " number:";
+            $isValidNumber = false;
+            $errorMessage = "";
+            $network = $_SESSION['ussd_data']['network'];
+
+            switch ($network) {
+                case 'MTN':
+                    if (preg_match('/^(054|053|055|024|023|025|059)[0-9]{7}$/', $input)) {
+                        $isValidNumber = true;
+                    } else {
+                        $errorMessage = "Invalid MTN MobileMoney number.";
+                    }
+                    break;
+                case 'AirtelTigo':
+                    if (preg_match('/^(027|026|056|057)[0-9]{7}$/', $input)) {
+                        $isValidNumber = true;
+                    } else {
+                        $errorMessage = "Invalid AirtelTigo Cash number.";
+                    }
+                    break;
+                case 'Telecel':
+                    if (preg_match('/^(020|050)[0-9]{7}$/', $input)) {
+                        $isValidNumber = true;
+                    } else {
+                        $errorMessage = "Invalid Telecel Cash number.";
+                    }
+                    break;
+                default:
+                    $errorMessage = "Invalid network selected.";
+                    break;
+            }
+
+            if ($isValidNumber) {
+                try {
+                    // Insert recipient number and sender_id into transaction table
+                    $stmt = $pdo->prepare("INSERT INTO transactions (sender_id, recipient_phone, network) VALUES (?, ?, ?)");
+                    $stmt->execute([$_SESSION['user_id'], $input, $network]);
+                    $_SESSION['transaction_id'] = $pdo->lastInsertId();
+                    $_SESSION['ussd_data']['recipient_phone'] = $input; // Store for later use
+                    $_SESSION['ussd_state'] = 'confirm_recipient';
+                    $response = "Confirm recipient: " . $input . "\n1. Confirm\n#. Back";
+                } catch (PDOException $e) {
+                    $response = "Error saving recipient. Please try again:\nEnter " . $network . " number:\n#. Back";
+                }
+            } else {
+                $response = $errorMessage . "\nPlease enter a valid " . $network . " number:\n#. Back";
+            }
         }
         break;
  
@@ -269,8 +274,10 @@ switch ($_SESSION['ussd_state']) {
                 
                 $pdo->commit();
                 
-                $_SESSION['ussd_state'] = 'transfer_success';
-                $response = "Transfer successful!\n\n1. Back to main menu";
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Transfer successful!\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
             } catch (PDOException $e) {
                 $pdo->rollBack();
                 $response = "Error processing transfer: " . $e->getMessage() . "\n\n1. Back to main menu";
@@ -297,15 +304,166 @@ switch ($_SESSION['ussd_state']) {
         break;
  
     case 'buy_airtime':
-        // You may need to add further logic here for airtime purchase similar to transfer money flow
-        // For now, it will just exit if the user selects it.
-        header('Location: buy_airtime.php');
-        exit;
+        if ($input == '#') {
+            // Go back to previous step or main menu depending on current step
+            if (isset($_SESSION['ussd_data']['airtime_step']) && (
+                ($_SESSION['ussd_data']['airtime_step'] == 2 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'self') ||
+                ($_SESSION['ussd_data']['airtime_step'] == 4 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'other') ||
+                ($_SESSION['ussd_data']['airtime_step'] == 2 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'other')
+            )) {
+                // Go back to self/other selection
+                $_SESSION['ussd_data']['airtime_step'] = 1;
+                $response = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+            } else if (isset($_SESSION['ussd_data']['airtime_step']) && $_SESSION['ussd_data']['airtime_step'] == 3 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'other') {
+                // Go back to network selection
+                $_SESSION['ussd_data']['airtime_step'] = 2;
+                $response = "Select Network:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
+            } else {
+                // Go back to main menu from any other step
+                $_SESSION['ussd_state'] = 'start';
+                $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+                header('Location: index.php');
+                exit;
+            }
+        }
+        if (!isset($_SESSION['ussd_data']['airtime_step']) || $input == '') {
+            $_SESSION['ussd_data']['airtime_step'] = 1;
+            $response = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+        } else if ($_SESSION['ussd_data']['airtime_step'] == 1) {
+            if ($input == '1') {
+                $stmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
+                $stmt->execute([$_SESSION['user_id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                $_SESSION['ussd_data']['airtime_number'] = $user ? $user['phone'] : '';
+                $_SESSION['ussd_data']['airtime_for'] = 'self';
+                $_SESSION['ussd_data']['airtime_step'] = 2;
+                $response = "Enter amount to buy (GHS):\n#. Back";
+            } else if ($input == '2') {
+                $_SESSION['ussd_data']['airtime_for'] = 'other';
+                $_SESSION['ussd_data']['airtime_step'] = 2;
+                $response = "Select Network:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
+            } else {
+                $response = "Invalid option. Please select:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+            }
+        } else if ($_SESSION['ussd_data']['airtime_step'] == 2 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'other') {
+            if ($input == '1') {
+                $_SESSION['ussd_data']['airtime_network'] = 'Telecel';
+                $_SESSION['ussd_data']['airtime_step'] = 3;
+                $response = "Enter recipient Telecel mobile number:\n#. Back";
+            } else if ($input == '2') {
+                $_SESSION['ussd_data']['airtime_network'] = 'AirtelTigo';
+                $_SESSION['ussd_data']['airtime_step'] = 3;
+                $response = "Enter recipient AirtelTigo mobile number:\n#. Back";
+            } else if ($input == '3') {
+                $_SESSION['ussd_data']['airtime_network'] = 'MTN';
+                $_SESSION['ussd_data']['airtime_step'] = 3;
+                $response = "Enter recipient MTN mobile number:\n#. Back";
+            } else {
+                $response = "Invalid option. Please select:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
+            }
+        } else if ($_SESSION['ussd_data']['airtime_step'] == 3 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'other') {
+            $network = $_SESSION['ussd_data']['airtime_network'];
+            $valid = false;
+            if ($network == 'MTN' && preg_match('/^(054|053|024|059|025|055)[0-9]{7}$/', $input)) {
+                $valid = true;
+            } else if ($network == 'Telecel' && preg_match('/^(020|050)[0-9]{7}$/', $input)) {
+                $valid = true;
+            } else if ($network == 'AirtelTigo' && preg_match('/^(026|056|027|057)[0-9]{7}$/', $input)) {
+                $valid = true;
+            }
+            if ($valid) {
+                $_SESSION['ussd_data']['airtime_number'] = $input;
+                $_SESSION['ussd_data']['airtime_step'] = 4;
+                $response = "Enter amount to buy (GHS):\n#. Back";
+            } else {
+                $response = "Invalid number for $network. Please enter a valid number for $network:\n#. Back";
+            }
+        } else if (
+            ($_SESSION['ussd_data']['airtime_step'] == 2 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'self') ||
+            ($_SESSION['ussd_data']['airtime_step'] == 4 && isset($_SESSION['ussd_data']['airtime_for']) && $_SESSION['ussd_data']['airtime_for'] == 'other')
+        ) {
+            if ($input == '#') {
+                // Go back to previous step
+                if ($_SESSION['ussd_data']['airtime_for'] == 'self') {
+                    $_SESSION['ussd_data']['airtime_step'] = 1;
+                    $response = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+                } else {
+                    $_SESSION['ussd_data']['airtime_step'] = 3;
+                    $response = "Enter recipient {$_SESSION['ussd_data']['airtime_network']} mobile number:\n#. Back";
+                }
+            } else if (is_numeric($input) && $input > 0) {
+                $_SESSION['ussd_data']['airtime_amount'] = $input;
+                $_SESSION['ussd_data']['airtime_step'] = 5;
+                $response = "Confirm Airtime Purchase:\nBuy GHS " . number_format($input, 2) . " airtime for " . $_SESSION['ussd_data']['airtime_number'] . ".\nEnter your PIN to confirm:\n#. Back";
+            } else {
+                $response = "Invalid amount. Please enter a valid amount (GHS):\n#. Back";
+            }
+        } else if ($_SESSION['ussd_data']['airtime_step'] == 5) {
+            if ($input == '#') {
+                // Go back to amount entry
+                if ($_SESSION['ussd_data']['airtime_for'] == 'self') {
+                    $_SESSION['ussd_data']['airtime_step'] = 2;
+                    $response = "Enter amount to buy (GHS):\n#. Back";
+                } else {
+                    $_SESSION['ussd_data']['airtime_step'] = 4;
+                    $response = "Enter amount to buy (GHS):\n#. Back";
+                }
+            } else {
+                // User enters PIN
+                $enteredPin = $input;
+                $stmt = $pdo->prepare("SELECT pin, balance FROM users WHERE id = ?");
+                $stmt->execute([$_SESSION['user_id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                $amount = $_SESSION['ussd_data']['airtime_amount'];
+                if (!$user || $enteredPin !== $user['pin']) {
+                    $_SESSION['ussd_data']['airtime_step'] = 1;
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $_SESSION['display'] = "Invalid PIN. Airtime purchase cancelled.\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                }
+                if ($user['balance'] < $amount) {
+                    $_SESSION['ussd_data']['airtime_step'] = 1;
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $_SESSION['display'] = "Insufficient funds. Your balance is GHS " . number_format($user['balance'], 2) . ".\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                }
+                // Deduct and record transaction
+                try {
+                    $pdo->beginTransaction();
+                    $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
+                    $stmt->execute([$amount, $_SESSION['user_id']]);
+                    $stmt = $pdo->prepare("INSERT INTO airtime_purchases (user_id, phone_number, amount, purchase_date) VALUES (?, ?, ?, GETDATE())");
+                    $stmt->execute([
+                        $_SESSION['user_id'],
+                        $_SESSION['ussd_data']['airtime_number'],
+                        $amount
+                    ]);
+                    $pdo->commit();
+                    $_SESSION['ussd_data']['airtime_step'] = 1;
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $_SESSION['display'] = "Airtime purchase successful!\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                } catch (PDOException $e) {
+                    $pdo->rollBack();
+                    $_SESSION['ussd_data']['airtime_step'] = 1;
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $_SESSION['display'] = "Airtime purchase failed: " . $e->getMessage() . "\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                }
+            }
+        }
+        break;
 
     case 'meter_topup':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'start';
             $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+        } else if ($input == '') {
+            $response = "Enter meter number:\n#. Back";
         } else if (preg_match('/^[A-Za-z0-9]{11}$/', $input)) {
             $_SESSION['ussd_data']['meter_number'] = $input;
             $_SESSION['ussd_state'] = 'select_meter_type';
@@ -350,18 +508,11 @@ switch ($_SESSION['ussd_state']) {
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
                 
                 if ($user && $user['balance'] >= $input) {
-                    // Save transaction details
-                    $stmt = $pdo->prepare("INSERT INTO meter_transactions (user_id, meter_number, meter_type, amount) VALUES (?, ?, ?, ?)");
-                    $stmt->execute([
-                        $_SESSION['user_id'],
-                        $_SESSION['ussd_data']['meter_number'],
-                        $_SESSION['ussd_data']['meter_type'],
-                        $input
-                    ]);
-                    $_SESSION['meter_transaction_id'] = $pdo->lastInsertId();
-                    
-                    $_SESSION['ussd_state'] = 'enter_pin'; // Proceed to PIN entry for meter top-up
-                    $response = "Enter your PIN:\n#. Back";
+                    $_SESSION['ussd_data']['amount'] = $input;
+                    $_SESSION['ussd_state'] = 'enter_pin_for_meter';
+                    $response = "Enter your PIN to confirm meter top-up of GHS " . number_format($input, 2) . 
+                               " for meter " . $_SESSION['ussd_data']['meter_number'] . 
+                               " (" . $_SESSION['ussd_data']['meter_type'] . "):\n#. Back";
                 } else {
                     $response = "Insufficient balance. Please enter a valid amount:\n#. Back";
                 }
@@ -372,6 +523,67 @@ switch ($_SESSION['ussd_state']) {
             $response = "Invalid amount. Please enter a valid amount:\n#. Back";
         }
         break;
+
+    case 'enter_pin_for_meter':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_meter_amount';
+            $_SESSION['display'] = "Enter amount to top up:\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else if ($input == $correctPin) {
+            try {
+                $pdo->beginTransaction();
+
+                // Deduct amount from user's balance
+                $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
+                $stmt->execute([$_SESSION['ussd_data']['amount'], $_SESSION['user_id']]);
+
+                // Record meter transaction
+                $stmt = $pdo->prepare("INSERT INTO meter_transactions (user_id, meter_number, meter_type, amount, transaction_date) VALUES (?, ?, ?, ?, GETDATE())");
+                $stmt->execute([
+                    $_SESSION['user_id'],
+                    $_SESSION['ussd_data']['meter_number'],
+                    $_SESSION['ussd_data']['meter_type'],
+                    $_SESSION['ussd_data']['amount']
+                ]);
+
+                $pdo->commit();
+
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Meter top-up successful!\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            } catch (PDOException $e) {
+                $pdo->rollBack();
+                $_SESSION['display'] = "Meter top-up failed: " . $e->getMessage();
+                header('Location: index.php');
+                exit;
+            }
+        } else {
+            $_SESSION['pin_attempts']++;
+            if ($_SESSION['pin_attempts'] >= 3) {
+                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.";
+                session_destroy();
+                header('Location: index.php');
+                exit;
+            } else {
+                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
+                $_SESSION['display'] = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:\n#. Back";
+                header('Location: index.php');
+                exit;
+            }
+        }
+        
+
+    case 'transaction_success':
+        if ($input == '1') {
+            $_SESSION['ussd_state'] = 'start';
+            $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+        } else {
+            $_SESSION['display'] = "Invalid option. Please select:\n1. Back to main menu";
+        }
+        header('Location: index.php');
+        exit;
 
     case 'investment':
         if ($input == '#') {
@@ -392,7 +604,7 @@ switch ($_SESSION['ussd_state']) {
                     $response = "Enter amount to invest in Mutual Funds:\n#. Back";
                     break;
                 default:
-                    $response = "Invalid option. Please select:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back";
+                    $response = "Invalid option. Please select:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back\n\nSelect an option:";
                     break;
             }
         }
@@ -470,8 +682,10 @@ switch ($_SESSION['ussd_state']) {
                 
                 $pdo->commit();
                 
-                $_SESSION['ussd_state'] = 'investment_success';
-                $response = "Fixed Deposit successful! Maturity Date: " . date('Y-m-d', strtotime($maturity_date)) . "\n\n1. Back to main menu";
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Fixed Deposit successful! Maturity Date: " . date('Y-m-d', strtotime($maturity_date)) . "\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
             } catch (PDOException $e) {
                 $pdo->rollBack();
                 $response = "Error processing Fixed Deposit: " . $e->getMessage() . "\n\n1. Back to main menu";
@@ -541,8 +755,10 @@ switch ($_SESSION['ussd_state']) {
                 
                 $pdo->commit();
                 
-                $_SESSION['ussd_state'] = 'investment_success';
-                $response = "Treasury Bills investment successful! Maturity Date: " . date('Y-m-d', strtotime($maturity_date)) . "\n\n1. Back to main menu";
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Treasury Bills investment successful! Maturity Date: " . date('Y-m-d', strtotime($maturity_date)) . "\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
             } catch (PDOException $e) {
                 $pdo->rollBack();
                 $response = "Error processing Treasury Bills investment: " . $e->getMessage() . "\n\n1. Back to main menu";
@@ -622,8 +838,10 @@ switch ($_SESSION['ussd_state']) {
                 
                 $pdo->commit();
                 
-                $_SESSION['ussd_state'] = 'investment_success';
-                $response = "Mutual Funds investment successful!\n\n1. Back to main menu";
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Mutual Funds investment successful!\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
             } catch (PDOException $e) {
                 $pdo->rollBack();
                 $response = "Error processing Mutual Funds investment: " . $e->getMessage() . "\n\n1. Back to main menu";

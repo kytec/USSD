@@ -50,6 +50,24 @@ BEGIN
 END
 GO
 
+-- Create meter_transactions table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'meter_transactions')
+BEGIN
+    CREATE TABLE meter_transactions (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        meter_number VARCHAR(20) NOT NULL,
+        meter_type VARCHAR(10) NOT NULL, -- 'Prepaid' or 'Postpaid'
+        amount DECIMAL(10,2) NOT NULL,
+        transaction_date DATETIME DEFAULT GETDATE(),
+        status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
+        provider_reference VARCHAR(50) NULL, -- Reference from network provider
+        provider_response TEXT NULL, -- Response from network provider
+        CONSTRAINT FK_MeterTransactions_Users FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+END
+GO
+
 -- Create fixed_deposits table
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'fixed_deposits')
 BEGIN
