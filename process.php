@@ -21,7 +21,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'cancel') {
     session_start();
     
     // Set the welcome message directly
-    $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+    $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
     
     // Redirect to index page
     header('Location: index.php');
@@ -37,77 +37,38 @@ switch ($_SESSION['ussd_state']) {
     case 'start':
         switch ($input) {
             case '1':
-                $_SESSION['ussd_state'] = 'pin_for_balance_check';
-                $response = "Please enter your PIN code:\n#. Back";
-                break;
-            case '2':
                 $_SESSION['ussd_state'] = 'select_network';
                 $response = "Select Network:\n1. MTN MobileMoney\n2. AirtelTigo Cash\n3. Telecel Cash\n#. Back";
                 break;
-            case '3':
-                $_SESSION['ussd_state'] = 'buy_airtime';
-                unset($_SESSION['ussd_data']['airtime_step']);
-                $response = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+            case '2':
+                $_SESSION['ussd_state'] = 'buy_airtime_data';
+                unset($_SESSION['ussd_data']['service_step']);
+                $response = "Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back";
                 break;
-            case '4':
+            case '3':
                 $_SESSION['ussd_state'] = 'meter_topup';
                 header('Location: meter_topup.php');
                 exit;
-            case '5':
+            case '4':
                 $_SESSION['ussd_state'] = 'investment';
                 $response = "Investment Options:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back\n\nSelect an option:";
                 break;
+            case '5':
+                $_SESSION['ussd_state'] = 'utility_payment';
+                $response = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n3. Statement\n#. Back";
+                break;
             default:
-                $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+                $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
                 break;
         }
         break;
  
-    case 'pin_for_balance_check':
-        if ($input == $correctPin) {
-            try {
-                // Get user's balance from database
-                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
-                $stmt->execute([$_SESSION['user_id']]);
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                
-                if ($user) {
-                    $_SESSION['ussd_state'] = 'display_balance_then_back_to_main_menu';
-                    $_SESSION['pin_attempts'] = 0;
-                    $response = "Your current balance is: GHS " . number_format($user['balance'], 2) . "\n\n1. Back to main menu";
-                } else {
-                    $response = "Error retrieving balance. Please try again later.\n\n1. Back to main menu";
-                }
-            } catch (PDOException $e) {
-                $response = "Error retrieving balance: " . $e->getMessage() . "\n\n1. Back to main menu";
-            }
-        } else {
-            $_SESSION['pin_attempts']++;
-            if ($_SESSION['pin_attempts'] >= 3) {
-                $response = "Too many incorrect attempts. Your session has been terminated.";
-                session_destroy();
-            } else {
-                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
-                $response = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN code:";
-            }
-        }
-        break;
- 
-    case 'display_balance_then_back_to_main_menu':
-        if ($input == '1') {
-            $_SESSION['ussd_state'] = 'start';
-            $_SESSION['ussd_data'] = [];
-            $_SESSION['pin_attempts'] = 0;
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
-        } else {
-            $response = "Invalid option. Please select:\n1. Back to main menu";
-        }
-        break;
+
  
     case 'select_network':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
         } else {
             switch ($input) {
                 case '1':
@@ -297,12 +258,213 @@ switch ($_SESSION['ussd_state']) {
     case 'transfer_success':
         if ($input == '1') {
             $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
         } else {
             $response = "Invalid option. Please select:\n1. Back to main menu";
         }
         break;
  
+    case 'buy_airtime_data':
+        if ($input == '#') {
+            // Handle back navigation based on current step
+            if (!isset($_SESSION['ussd_data']['service_step']) || $_SESSION['ussd_data']['service_step'] == 1) {
+                $_SESSION['ussd_state'] = 'start';
+                $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
+                header('Location: index.php');
+                exit;
+            } else if ($_SESSION['ussd_data']['service_step'] == 2) {
+                $_SESSION['ussd_data']['service_step'] = 1;
+                $response = "Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back";
+            } else if ($_SESSION['ussd_data']['service_step'] == 3) {
+                $_SESSION['ussd_data']['service_step'] = 2;
+                $serviceType = $_SESSION['ussd_data']['service_type'];
+                $response = "Buy " . ucfirst($serviceType) . ":\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+            } else {
+                // Go back to previous steps based on context
+                if (isset($_SESSION['ussd_data']['for_self']) && $_SESSION['ussd_data']['for_self']) {
+                    $_SESSION['ussd_data']['service_step'] = 2;
+                    $serviceType = $_SESSION['ussd_data']['service_type'];
+                    $response = "Buy " . ucfirst($serviceType) . ":\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+                } else {
+                    $_SESSION['ussd_data']['service_step'] = 3;
+                    $response = "Select Network:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
+                }
+            }
+        } else {
+            if (!isset($_SESSION['ussd_data']['service_step']) || $input == '') {
+                $_SESSION['ussd_data']['service_step'] = 1;
+                $response = "Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back";
+            } else if ($_SESSION['ussd_data']['service_step'] == 1) {
+                // Choose service type
+                if ($input == '1') {
+                    $_SESSION['ussd_data']['service_type'] = 'airtime';
+                    $_SESSION['ussd_data']['service_step'] = 2;
+                    $response = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+                } else if ($input == '2') {
+                    $_SESSION['ussd_data']['service_type'] = 'data';
+                    $_SESSION['ussd_data']['service_step'] = 2;
+                    $response = "Buy Data:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+                } else {
+                    $response = "Invalid option. Please select:\n1. Buy Airtime\n2. Buy Data\n#. Back";
+                }
+            } else if ($_SESSION['ussd_data']['service_step'] == 2) {
+                // Choose self or other
+                if ($input == '1') {
+                    $stmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                    $_SESSION['ussd_data']['phone_number'] = $user ? $user['phone'] : '';
+                    $_SESSION['ussd_data']['for_self'] = true;
+                    
+                    if ($_SESSION['ussd_data']['service_type'] == 'airtime') {
+                        $_SESSION['ussd_data']['service_step'] = 5; // Skip network and phone selection
+                        $response = "Enter amount to buy (GHS):\n#. Back";
+                    } else {
+                        $_SESSION['ussd_data']['service_step'] = 5; // Skip network and phone selection
+                        $response = "Select Data Bundle:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
+                    }
+                } else if ($input == '2') {
+                    $_SESSION['ussd_data']['for_self'] = false;
+                    $_SESSION['ussd_data']['service_step'] = 3;
+                    $response = "Select Network:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
+                } else {
+                    $serviceType = $_SESSION['ussd_data']['service_type'];
+                    $response = "Invalid option. Please select:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+                }
+            } else if ($_SESSION['ussd_data']['service_step'] == 3) {
+                // Choose network for other
+                if ($input == '1') {
+                    $_SESSION['ussd_data']['network'] = 'Telecel';
+                    $_SESSION['ussd_data']['service_step'] = 4;
+                    $response = "Enter recipient Telecel mobile number:\n#. Back";
+                } else if ($input == '2') {
+                    $_SESSION['ussd_data']['network'] = 'AirtelTigo';
+                    $_SESSION['ussd_data']['service_step'] = 4;
+                    $response = "Enter recipient AirtelTigo mobile number:\n#. Back";
+                } else if ($input == '3') {
+                    $_SESSION['ussd_data']['network'] = 'MTN';
+                    $_SESSION['ussd_data']['service_step'] = 4;
+                    $response = "Enter recipient MTN mobile number:\n#. Back";
+                } else {
+                    $response = "Invalid option. Please select:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
+                }
+            } else if ($_SESSION['ussd_data']['service_step'] == 4) {
+                // Enter phone number for other
+                $network = $_SESSION['ussd_data']['network'];
+                $valid = false;
+                if ($network == 'MTN' && preg_match('/^(054|053|024|059|025|055)[0-9]{7}$/', $input)) {
+                    $valid = true;
+                } else if ($network == 'Telecel' && preg_match('/^(020|050)[0-9]{7}$/', $input)) {
+                    $valid = true;
+                } else if ($network == 'AirtelTigo' && preg_match('/^(026|056|027|057)[0-9]{7}$/', $input)) {
+                    $valid = true;
+                }
+                
+                if ($valid) {
+                    $_SESSION['ussd_data']['phone_number'] = $input;
+                    $_SESSION['ussd_data']['service_step'] = 5;
+                    
+                    if ($_SESSION['ussd_data']['service_type'] == 'airtime') {
+                        $response = "Enter amount to buy (GHS):\n#. Back";
+                    } else {
+                        $response = "Select Data Bundle:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
+                    }
+                } else {
+                    $response = "Invalid number for $network. Please enter a valid number for $network:\n#. Back";
+                }
+            } else if ($_SESSION['ussd_data']['service_step'] == 5) {
+                if ($_SESSION['ussd_data']['service_type'] == 'airtime') {
+                    // Enter amount for airtime
+                    if (is_numeric($input) && $input > 0) {
+                        $_SESSION['ussd_data']['amount'] = $input;
+                        $_SESSION['ussd_data']['service_step'] = 6;
+                        $response = "Confirm Airtime Purchase:\nBuy GHS " . number_format($input, 2) . " airtime for " . $_SESSION['ussd_data']['phone_number'] . ".\nEnter your PIN to confirm:\n#. Back";
+                    } else {
+                        $response = "Invalid amount. Please enter a valid amount (GHS):\n#. Back";
+                    }
+                } else {
+                    // Select data bundle
+                    $bundles = [
+                        '1' => ['size' => '1GB', 'price' => 5],
+                        '2' => ['size' => '2GB', 'price' => 9],
+                        '3' => ['size' => '5GB', 'price' => 20],
+                        '4' => ['size' => '10GB', 'price' => 35]
+                    ];
+                    
+                    if (isset($bundles[$input])) {
+                        $_SESSION['ussd_data']['data_bundle'] = $bundles[$input]['size'];
+                        $_SESSION['ussd_data']['amount'] = $bundles[$input]['price'];
+                        $_SESSION['ussd_data']['service_step'] = 6;
+                        $response = "Confirm Data Purchase:\nBuy " . $bundles[$input]['size'] . " data bundle for GHS " . $bundles[$input]['price'] . " for " . $_SESSION['ussd_data']['phone_number'] . ".\nEnter your PIN to confirm:\n#. Back";
+                    } else {
+                        $response = "Invalid option. Please select:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
+                    }
+                }
+            } else if ($_SESSION['ussd_data']['service_step'] == 6) {
+                // PIN confirmation
+                $enteredPin = $input;
+                $stmt = $pdo->prepare("SELECT pin, balance FROM users WHERE id = ?");
+                $stmt->execute([$_SESSION['user_id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                $amount = $_SESSION['ussd_data']['amount'];
+                
+                if (!$user || $enteredPin !== $user['pin']) {
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $serviceName = $_SESSION['ussd_data']['service_type'];
+                    $_SESSION['display'] = "Invalid PIN. " . ucfirst($serviceName) . " purchase cancelled.\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                }
+                
+                if ($user['balance'] < $amount) {
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $_SESSION['display'] = "Insufficient funds. Your balance is GHS " . number_format($user['balance'], 2) . ".\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                }
+                
+                // Process the transaction
+                try {
+                    $pdo->beginTransaction();
+                    $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
+                    $stmt->execute([$amount, $_SESSION['user_id']]);
+                    
+                    if ($_SESSION['ussd_data']['service_type'] == 'airtime') {
+                        $stmt = $pdo->prepare("INSERT INTO airtime_purchases (user_id, phone_number, amount, purchase_date) VALUES (?, ?, ?, GETDATE())");
+                        $stmt->execute([
+                            $_SESSION['user_id'],
+                            $_SESSION['ussd_data']['phone_number'],
+                            $amount
+                        ]);
+                        $successMessage = "Airtime purchase successful!";
+                    } else {
+                        $stmt = $pdo->prepare("INSERT INTO data_purchases (user_id, phone_number, data_bundle, amount, purchase_date) VALUES (?, ?, ?, ?, GETDATE())");
+                        $stmt->execute([
+                            $_SESSION['user_id'],
+                            $_SESSION['ussd_data']['phone_number'],
+                            $_SESSION['ussd_data']['data_bundle'],
+                            $amount
+                        ]);
+                        $successMessage = "Data purchase successful!";
+                    }
+                    
+                    $pdo->commit();
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $_SESSION['display'] = $successMessage . "\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                } catch (PDOException $e) {
+                    $pdo->rollBack();
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $serviceName = $_SESSION['ussd_data']['service_type'];
+                    $_SESSION['display'] = ucfirst($serviceName) . " purchase failed: " . $e->getMessage() . "\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                }
+            }
+        }
+        break;
+
     case 'buy_airtime':
         if ($input == '#') {
             // Go back to previous step or main menu depending on current step
@@ -321,7 +483,7 @@ switch ($_SESSION['ussd_state']) {
             } else {
                 // Go back to main menu from any other step
                 $_SESSION['ussd_state'] = 'start';
-                $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+                $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
                 header('Location: index.php');
                 exit;
             }
@@ -461,7 +623,7 @@ switch ($_SESSION['ussd_state']) {
     case 'meter_topup':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
         } else if ($input == '') {
             $response = "Enter meter number:\n#. Back";
         } else if (preg_match('/^[A-Za-z0-9]{11}$/', $input)) {
@@ -578,7 +740,7 @@ switch ($_SESSION['ussd_state']) {
     case 'transaction_success':
         if ($input == '1') {
             $_SESSION['ussd_state'] = 'start';
-            $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+            $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
         } else {
             $_SESSION['display'] = "Invalid option. Please select:\n1. Back to main menu";
         }
@@ -588,7 +750,7 @@ switch ($_SESSION['ussd_state']) {
     case 'investment':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
         } else {
             switch ($input) {
                 case '1':
@@ -861,9 +1023,211 @@ switch ($_SESSION['ussd_state']) {
     case 'investment_success':
         if ($input == '1') {
             $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Check Balance\n2. Transfer Money\n3. Buy Airtime\n4. Meter Top-up\n5. Investment";
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
         } else {
             $response = "Invalid option. Please select:\n1. Back to main menu";
+        }
+        break;
+
+    case 'utility_payment':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'start';
+            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
+        } else {
+            switch ($input) {
+                case '1':
+                    $_SESSION['ussd_data']['utility_type'] = 'ECG';
+                    $_SESSION['ussd_state'] = 'enter_utility_account';
+                    $response = "Enter your ECG account number:\n#. Back";
+                    break;
+                case '2':
+                    $_SESSION['ussd_data']['utility_type'] = 'Water';
+                    $_SESSION['ussd_state'] = 'enter_utility_account';
+                    $response = "Enter your Water account number:\n#. Back";
+                    break;
+                case '3':
+                    $_SESSION['ussd_state'] = 'view_statement';
+                    try {
+                        $transactions = [];
+                        
+                        // Try to get transactions - start with most likely to exist
+                        // Get Send Money transactions
+                        try {
+                            $stmt = $pdo->prepare("SELECT 'Send Money' as type, recipient_phone as details, amount, transaction_date FROM transactions WHERE sender_id = ? AND status = 'completed' ORDER BY transaction_date DESC");
+                            $stmt->execute([$_SESSION['user_id']]);
+                            $sendMoney = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $transactions = array_merge($transactions, $sendMoney);
+                        } catch (Exception $e) {
+                            // Table might not exist or have data, continue
+                        }
+                        
+                        // Get Airtime purchases
+                        try {
+                            $stmt = $pdo->prepare("SELECT 'Airtime Purchase' as type, phone_number as details, amount, purchase_date as transaction_date FROM airtime_purchases WHERE user_id = ? ORDER BY purchase_date DESC");
+                            $stmt->execute([$_SESSION['user_id']]);
+                            $airtime = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $transactions = array_merge($transactions, $airtime);
+                        } catch (Exception $e) {
+                            // Continue if table doesn't exist
+                        }
+                        
+                        // Get Data purchases  
+                        try {
+                            $stmt = $pdo->prepare("SELECT 'Data Purchase' as type, phone_number as details, amount, purchase_date as transaction_date FROM data_purchases WHERE user_id = ? ORDER BY purchase_date DESC");
+                            $stmt->execute([$_SESSION['user_id']]);
+                            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $transactions = array_merge($transactions, $data);
+                        } catch (Exception $e) {
+                            // Continue if table doesn't exist
+                        }
+                        
+                        // Get Utility payments
+                        try {
+                            $stmt = $pdo->prepare("SELECT 'Utility Payment' as type, account_number as details, amount, payment_date as transaction_date FROM utility_payments WHERE user_id = ? ORDER BY payment_date DESC");
+                            $stmt->execute([$_SESSION['user_id']]);
+                            $utility = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $transactions = array_merge($transactions, $utility);
+                        } catch (Exception $e) {
+                            // Continue if table doesn't exist
+                        }
+                        
+                        // Sort all transactions by date and get top 2
+                        if (count($transactions) > 0) {
+                            usort($transactions, function($a, $b) {
+                                return strtotime($b['transaction_date']) - strtotime($a['transaction_date']);
+                            });
+                            $transactions = array_slice($transactions, 0, 2);
+                            
+                            $response = "Last 2 Transactions:\n\n";
+                            $counter = 1;
+                            foreach ($transactions as $transaction) {
+                                $date = date('d/m/Y H:i', strtotime($transaction['transaction_date']));
+                                $response .= "{$counter}. {$transaction['type']}\n";
+                                $response .= "   Details: {$transaction['details']}\n";
+                                $response .= "   Amount: GHS " . number_format($transaction['amount'], 2) . "\n";
+                                $response .= "   Date: {$date}\n";
+                                if ($counter < count($transactions)) {
+                                    $response .= "\n";
+                                }
+                                $counter++;
+                            }
+                            $response .= "\n#. Back";
+                        } else {
+                            $response = "No transactions found.\n\n#. Back";
+                        }
+                    } catch (PDOException $e) {
+                        $response = "Error retrieving transactions. Please try again later.\n\n#. Back";
+                    }
+                    break;
+                default:
+                    $response = "Invalid option. Please select:\n1. ECG (Electricity)\n2. Water\n3. Statement\n#. Back";
+                    break;
+            }
+        }
+        break;
+
+    case 'view_statement':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'utility_payment';
+            $response = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n3. Statement\n#. Back";
+        } else {
+            $response = "Invalid input. Please press #. to go back";
+        }
+        break;
+
+    case 'enter_utility_account':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'utility_payment';
+            $response = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n3. Statement\n#. Back";
+        } else if (preg_match('/^[A-Za-z0-9]{8,15}$/', $input)) {
+            $_SESSION['ussd_data']['utility_account'] = $input;
+            $_SESSION['ussd_state'] = 'enter_utility_amount';
+            $utilityType = $_SESSION['ussd_data']['utility_type'];
+            $response = "Enter amount to pay for $utilityType:\n#. Back";
+        } else {
+            $utilityType = $_SESSION['ussd_data']['utility_type'];
+            $response = "Invalid account number. Please enter a valid $utilityType account number (8-15 characters):\n#. Back";
+        }
+        break;
+
+    case 'enter_utility_amount':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_utility_account';
+            $utilityType = $_SESSION['ussd_data']['utility_type'];
+            $response = "Enter your $utilityType account number:\n#. Back";
+        } else if (is_numeric($input) && $input > 0) {
+            try {
+                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
+                $stmt->execute([$_SESSION['user_id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($user && $user['balance'] >= $input) {
+                    $_SESSION['ussd_data']['utility_amount'] = $input;
+                    $_SESSION['ussd_state'] = 'enter_pin_for_utility';
+                    $utilityType = $_SESSION['ussd_data']['utility_type'];
+                    $account = $_SESSION['ussd_data']['utility_account'];
+                    $response = "Confirm $utilityType payment:\nAccount: $account\nAmount: GHS " . number_format($input, 2) . "\n\nEnter your PIN to confirm:\n#. Back";
+                } else {
+                    $response = "Insufficient balance. Please enter a valid amount:\n#. Back";
+                }
+            } catch (PDOException $e) {
+                $response = "Error checking balance. Please try again:\n#. Back";
+            }
+        } else {
+            $response = "Invalid amount. Please enter a valid amount:\n#. Back";
+        }
+        break;
+
+    case 'enter_pin_for_utility':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_utility_amount';
+            $utilityType = $_SESSION['ussd_data']['utility_type'];
+            $response = "Enter amount to pay for $utilityType:\n#. Back";
+        } else if ($input == $correctPin) {
+            try {
+                $amount = $_SESSION['ussd_data']['utility_amount'];
+                $utilityType = $_SESSION['ussd_data']['utility_type'];
+                $account = $_SESSION['ussd_data']['utility_account'];
+
+                $pdo->beginTransaction();
+                
+                // Deduct from user's balance
+                $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
+                $stmt->execute([$amount, $_SESSION['user_id']]);
+                
+                // Insert into utility_payments table
+                $stmt = $pdo->prepare("INSERT INTO utility_payments (user_id, utility_type, account_number, amount, payment_date) VALUES (?, ?, ?, ?, GETDATE())");
+                $stmt->execute([
+                    $_SESSION['user_id'],
+                    $utilityType,
+                    $account,
+                    $amount
+                ]);
+                
+                $pdo->commit();
+                
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "$utilityType payment successful!\nAccount: $account\nAmount: GHS " . number_format($amount, 2) . "\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            } catch (PDOException $e) {
+                $pdo->rollBack();
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Utility payment failed: " . $e->getMessage() . "\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            }
+        } else {
+            $_SESSION['pin_attempts']++;
+            if ($_SESSION['pin_attempts'] >= 3) {
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            } else {
+                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
+                $response = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:\n#. Back";
+            }
         }
         break;
  

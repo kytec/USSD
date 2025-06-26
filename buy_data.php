@@ -5,14 +5,22 @@ require_once 'db_connect.php';
 $input = isset($_POST['ussd_input']) ? $_POST['ussd_input'] : '';
 $correctPin = '1234';
 
-// Initialize airtime state if not set
-if (!isset($_SESSION['airtime_state'])) {
-    $_SESSION['airtime_state'] = 'select_option';
-    $_SESSION['airtime_data'] = [];
+// Initialize data state if not set
+if (!isset($_SESSION['data_state'])) {
+    $_SESSION['data_state'] = 'select_option';
+    $_SESSION['data_data'] = [];
     $_SESSION['pin_attempts'] = 0;
 }
 
-switch ($_SESSION['airtime_state']) {
+// Data bundles configuration
+$dataBundles = [
+    '1' => ['size' => '1GB', 'price' => 5],
+    '2' => ['size' => '2GB', 'price' => 9],
+    '3' => ['size' => '5GB', 'price' => 20],
+    '4' => ['size' => '10GB', 'price' => 35]
+];
+
+switch ($_SESSION['data_state']) {
     case 'select_option':
         switch ($input) {
             case '1':
@@ -21,18 +29,18 @@ switch ($_SESSION['airtime_state']) {
                     $stmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
                     $stmt->execute([$_SESSION['user_id']]);
                     $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                    $_SESSION['airtime_data']['phone_number'] = $user ? $user['phone'] : '';
-                    $_SESSION['airtime_data']['for_self'] = true;
-                    $_SESSION['airtime_state'] = 'enter_amount';
-                    $_SESSION['display'] = "Enter amount to buy (GHS):\n#. Back";
+                    $_SESSION['data_data']['phone_number'] = $user ? $user['phone'] : '';
+                    $_SESSION['data_data']['for_self'] = true;
+                    $_SESSION['data_state'] = 'select_bundle';
+                    $_SESSION['display'] = "Select Data Bundle:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
                 } catch (PDOException $e) {
                     $_SESSION['display'] = "Error retrieving user data. Please try again.\n#. Back";
                 }
                 break;
             case '2':
                 // For Other
-                $_SESSION['airtime_data']['for_self'] = false;
-                $_SESSION['airtime_state'] = 'select_network';
+                $_SESSION['data_data']['for_self'] = false;
+                $_SESSION['data_state'] = 'select_network';
                 $_SESSION['display'] = "Select Network:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
                 break;
             case '#':
@@ -44,30 +52,30 @@ switch ($_SESSION['airtime_state']) {
                 header('Location: index.php');
                 exit;
             default:
-                $_SESSION['display'] = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back\n\nInvalid option. Please select 1 or 2:";
+                $_SESSION['display'] = "Buy Data:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back\n\nInvalid option. Please select 1 or 2:";
                 break;
         }
         break;
 
     case 'select_network':
         if ($input == '#') {
-            $_SESSION['airtime_state'] = 'select_option';
-            $_SESSION['display'] = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+            $_SESSION['data_state'] = 'select_option';
+            $_SESSION['display'] = "Buy Data:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
         } else {
             switch ($input) {
                 case '1':
-                    $_SESSION['airtime_data']['network'] = 'Telecel';
-                    $_SESSION['airtime_state'] = 'enter_phone';
+                    $_SESSION['data_data']['network'] = 'Telecel';
+                    $_SESSION['data_state'] = 'enter_phone';
                     $_SESSION['display'] = "Enter recipient Telecel mobile number:\n#. Back";
                     break;
                 case '2':
-                    $_SESSION['airtime_data']['network'] = 'AirtelTigo';
-                    $_SESSION['airtime_state'] = 'enter_phone';
+                    $_SESSION['data_data']['network'] = 'AirtelTigo';
+                    $_SESSION['data_state'] = 'enter_phone';
                     $_SESSION['display'] = "Enter recipient AirtelTigo mobile number:\n#. Back";
                     break;
                 case '3':
-                    $_SESSION['airtime_data']['network'] = 'MTN';
-                    $_SESSION['airtime_state'] = 'enter_phone';
+                    $_SESSION['data_data']['network'] = 'MTN';
+                    $_SESSION['data_state'] = 'enter_phone';
                     $_SESSION['display'] = "Enter recipient MTN mobile number:\n#. Back";
                     break;
                 default:
@@ -79,10 +87,10 @@ switch ($_SESSION['airtime_state']) {
 
     case 'enter_phone':
         if ($input == '#') {
-            $_SESSION['airtime_state'] = 'select_network';
+            $_SESSION['data_state'] = 'select_network';
             $_SESSION['display'] = "Select Network:\n1. Telecel\n2. AirtelTigo\n3. MTN\n#. Back";
         } else {
-            $network = $_SESSION['airtime_data']['network'];
+            $network = $_SESSION['data_data']['network'];
             $valid = false;
             
             // Validate phone number based on network
@@ -95,56 +103,60 @@ switch ($_SESSION['airtime_state']) {
             }
             
             if ($valid) {
-                $_SESSION['airtime_data']['phone_number'] = $input;
-                $_SESSION['airtime_state'] = 'enter_amount';
-                $_SESSION['display'] = "Enter amount to buy (GHS):\n#. Back";
+                $_SESSION['data_data']['phone_number'] = $input;
+                $_SESSION['data_state'] = 'select_bundle';
+                $_SESSION['display'] = "Select Data Bundle:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
             } else {
                 $_SESSION['display'] = "Invalid number for $network. Please enter a valid $network number:\n#. Back";
             }
         }
         break;
 
-    case 'enter_amount':
+    case 'select_bundle':
         if ($input == '#') {
-            if ($_SESSION['airtime_data']['for_self']) {
-                $_SESSION['airtime_state'] = 'select_option';
-                $_SESSION['display'] = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+            if ($_SESSION['data_data']['for_self']) {
+                $_SESSION['data_state'] = 'select_option';
+                $_SESSION['display'] = "Buy Data:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
             } else {
-                $_SESSION['airtime_state'] = 'enter_phone';
-                $network = $_SESSION['airtime_data']['network'];
+                $_SESSION['data_state'] = 'enter_phone';
+                $network = $_SESSION['data_data']['network'];
                 $_SESSION['display'] = "Enter recipient $network mobile number:\n#. Back";
             }
-        } else if (is_numeric($input) && $input > 0) {
+        } else if (isset($dataBundles[$input])) {
+            $bundle = $dataBundles[$input];
+            $_SESSION['data_data']['bundle_size'] = $bundle['size'];
+            $_SESSION['data_data']['amount'] = $bundle['price'];
+            
             try {
                 // Check if user has sufficient balance
                 $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
                 $stmt->execute([$_SESSION['user_id']]);
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($user && $user['balance'] >= $input) {
-                    $_SESSION['airtime_data']['amount'] = $input;
-                    $_SESSION['airtime_state'] = 'confirm_purchase';
-                    $phone = $_SESSION['airtime_data']['phone_number'];
-                    $_SESSION['display'] = "Confirm Airtime Purchase:\nBuy GHS " . number_format($input, 2) . " airtime for $phone.\n\nEnter your PIN to confirm:\n#. Back";
+                
+                if ($user && $user['balance'] >= $bundle['price']) {
+                    $_SESSION['data_state'] = 'confirm_purchase';
+                    $phone = $_SESSION['data_data']['phone_number'];
+                    $_SESSION['display'] = "Confirm Data Purchase:\nBuy " . $bundle['size'] . " data bundle for GHS " . $bundle['price'] . " for $phone.\n\nEnter your PIN to confirm:\n#. Back";
                 } else {
-                    $_SESSION['display'] = "Insufficient balance. Your balance is GHS " . number_format($user['balance'], 2) . ".\nPlease enter a valid amount:\n#. Back";
+                    $_SESSION['display'] = "Insufficient balance. Your balance is GHS " . number_format($user['balance'], 2) . ".\nRequired: GHS " . $bundle['price'] . "\n\nSelect Data Bundle:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
                 }
             } catch (PDOException $e) {
-                $_SESSION['display'] = "Error checking balance. Please try again:\nEnter amount to buy (GHS):\n#. Back";
+                $_SESSION['display'] = "Error checking balance. Please try again:\nSelect Data Bundle:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
             }
         } else {
-            $_SESSION['display'] = "Invalid amount. Please enter a valid amount (GHS):\n#. Back";
+            $_SESSION['display'] = "Invalid option. Please select:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
         }
         break;
 
     case 'confirm_purchase':
         if ($input == '#') {
-            $_SESSION['airtime_state'] = 'enter_amount';
-            $_SESSION['display'] = "Enter amount to buy (GHS):\n#. Back";
+            $_SESSION['data_state'] = 'select_bundle';
+            $_SESSION['display'] = "Select Data Bundle:\n1. 1GB - GHS 5\n2. 2GB - GHS 9\n3. 5GB - GHS 20\n4. 10GB - GHS 35\n#. Back";
         } else if ($input == $correctPin) {
             try {
-                $amount = $_SESSION['airtime_data']['amount'];
-                $phone = $_SESSION['airtime_data']['phone_number'];
+                $amount = $_SESSION['data_data']['amount'];
+                $phone = $_SESSION['data_data']['phone_number'];
+                $bundleSize = $_SESSION['data_data']['bundle_size'];
                 
                 // Check balance again before processing
                 $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
@@ -152,44 +164,45 @@ switch ($_SESSION['airtime_state']) {
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
                 
                 if (!$user || $user['balance'] < $amount) {
-                    $_SESSION['airtime_state'] = 'purchase_complete';
-                    $_SESSION['display'] = "Insufficient funds. Airtime purchase cancelled.\n\n1. Back to main menu";
+                    $_SESSION['data_state'] = 'purchase_complete';
+                    $_SESSION['display'] = "Insufficient funds. Data purchase cancelled.\n\n1. Back to main menu";
                     header('Location: index.php');
                     exit;
                 }
 
                 $pdo->beginTransaction();
-
+                
                 // Deduct amount from user's balance
                 $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
                 $stmt->execute([$amount, $_SESSION['user_id']]);
-
-                // Record airtime purchase
-                $stmt = $pdo->prepare("INSERT INTO airtime_purchases (user_id, phone_number, amount, purchase_date) VALUES (?, ?, ?, GETDATE())");
+                
+                // Record data purchase
+                $stmt = $pdo->prepare("INSERT INTO data_purchases (user_id, phone_number, data_bundle, amount, purchase_date) VALUES (?, ?, ?, ?, GETDATE())");
                 $stmt->execute([
                     $_SESSION['user_id'],
                     $phone,
+                    $bundleSize,
                     $amount
                 ]);
-
+                
                 $pdo->commit();
-
-                $_SESSION['airtime_state'] = 'purchase_complete';
-                $_SESSION['display'] = "Airtime purchase successful!\nAmount: GHS " . number_format($amount, 2) . "\nRecipient: $phone\n\n1. Back to main menu";
+                
+                $_SESSION['data_state'] = 'purchase_complete';
+                $_SESSION['display'] = "Data purchase successful!\nBundle: $bundleSize\nAmount: GHS " . number_format($amount, 2) . "\nRecipient: $phone\n\n1. Back to main menu";
                 header('Location: index.php');
                 exit;
                 
             } catch (PDOException $e) {
                 $pdo->rollBack();
-                $_SESSION['airtime_state'] = 'purchase_complete';
-                $_SESSION['display'] = "Airtime purchase failed: " . $e->getMessage() . "\n\n1. Back to main menu";
+                $_SESSION['data_state'] = 'purchase_complete';
+                $_SESSION['display'] = "Data purchase failed: " . $e->getMessage() . "\n\n1. Back to main menu";
                 header('Location: index.php');
                 exit;
             }
         } else {
             $_SESSION['pin_attempts']++;
             if ($_SESSION['pin_attempts'] >= 3) {
-                $_SESSION['airtime_state'] = 'purchase_complete';
+                $_SESSION['data_state'] = 'purchase_complete';
                 $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu";
                 header('Location: index.php');
                 exit;
@@ -202,9 +215,9 @@ switch ($_SESSION['airtime_state']) {
 
     case 'purchase_complete':
         if ($input == '1') {
-            // Clear airtime session data and return to main menu
-            unset($_SESSION['airtime_state']);
-            unset($_SESSION['airtime_data']);
+            // Clear data session data and return to main menu
+            unset($_SESSION['data_state']);
+            unset($_SESSION['data_data']);
             $_SESSION['pin_attempts'] = 0;
             $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
             header('Location: index.php');
@@ -215,11 +228,11 @@ switch ($_SESSION['airtime_state']) {
         break;
 
     default:
-        $_SESSION['airtime_state'] = 'select_option';
-        $_SESSION['display'] = "Buy Airtime:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
+        $_SESSION['data_state'] = 'select_option';
+        $_SESSION['display'] = "Buy Data:\n1. For Self (My MTN No.)\n2. For Other (Another MTN No or Other Network.)\n#. Back";
         break;
 }
 
 header('Location: index.php');
 exit;
-?>
+?> 

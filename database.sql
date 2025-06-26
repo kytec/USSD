@@ -50,6 +50,21 @@ BEGIN
 END
 GO
 
+-- Create data_purchases table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'data_purchases')
+BEGIN
+    CREATE TABLE data_purchases (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        phone_number VARCHAR(10) NOT NULL,
+        data_bundle VARCHAR(20) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        purchase_date DATETIME DEFAULT GETDATE(),
+        CONSTRAINT FK_DataPurchases_Users FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+END
+GO
+
 -- Create meter_transactions table
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'meter_transactions')
 BEGIN
@@ -112,6 +127,22 @@ BEGIN
         fund_name VARCHAR(50) NOT NULL,
         status VARCHAR(20) DEFAULT 'active',
         CONSTRAINT FK_MutualFunds_Users FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+END
+GO
+
+-- Create utility_payments table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'utility_payments')
+BEGIN
+    CREATE TABLE utility_payments (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        utility_type VARCHAR(20) NOT NULL, -- 'ECG' or 'Water'
+        account_number VARCHAR(20) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        payment_date DATETIME DEFAULT GETDATE(),
+        status VARCHAR(20) DEFAULT 'completed',
+        CONSTRAINT FK_UtilityPayments_Users FOREIGN KEY (user_id) REFERENCES users(id)
     );
 END
 GO
