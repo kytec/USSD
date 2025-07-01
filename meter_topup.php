@@ -2,6 +2,24 @@
 session_start();
 require_once 'db_connect.php';
 
+// Initialize session if not set
+if (!isset($_SESSION['ussd_state'])) {
+    $_SESSION['ussd_state'] = 'start';
+    $_SESSION['ussd_data'] = [];
+    $_SESSION['pin_attempts'] = 0;
+    $_SESSION['user_id'] = 1;
+}
+
+// Handle cancel button
+if (isset($_POST['action']) && $_POST['action'] === 'cancel') {
+    $_SESSION = array();
+    session_destroy();
+    session_start();
+    $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Meter Top-up\n4. Investment\n5. Utility Payment";
+    header('Location: index.php');
+    exit();
+}
+
 $input = isset($_POST['ussd_input']) ? $_POST['ussd_input'] : '';
 $correctPin = '1234';
 

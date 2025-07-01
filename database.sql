@@ -147,6 +147,22 @@ BEGIN
 END
 GO
 
+-- Create investments table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'investments')
+BEGIN
+    CREATE TABLE investments (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        investment_type VARCHAR(20) NOT NULL, -- 'Fixed Deposit', 'Treasury Bills', 'Mutual Funds'
+        amount DECIMAL(10,2) NOT NULL,
+        maturity_date DATE NOT NULL,
+        created_at DATETIME DEFAULT GETDATE(),
+        status VARCHAR(20) DEFAULT 'active', -- 'active', 'matured', 'cancelled'
+        CONSTRAINT FK_Investments_Users FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+END
+GO
+
 -- Insert a test user if not exists
 IF NOT EXISTS (SELECT * FROM users WHERE phone = '0200000000')
 BEGIN
