@@ -87,9 +87,8 @@ switch ($_SESSION['ussd_state']) {
                     $response = "Enter AirtelTigo Cash number:\n#. Back";
                     break;
                 case '4':
-                    $_SESSION['ussd_data']['network'] = 'Bank';
-                    $_SESSION['ussd_state'] = 'enter_bank_account';
-                    $response = "Enter Bank Account Number:\n#. Back";
+                    $_SESSION['ussd_state'] = 'select_bank';
+                    $response = "Select Bank:\n1. GCB\n2. Ecobank\n3. GTBank\n4. Prudential Bank\n5. UBA\n#. Back";
                     break;
                 default:
                     $response = "Invalid option. Please select:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
@@ -98,174 +97,109 @@ switch ($_SESSION['ussd_state']) {
         }
         break;
  
-    case 'enter_recipient':
+    case 'select_bank':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'select_network';
             $response = "Select Network:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
         } else {
-            $isValidNumber = false;
-            $errorMessage = "";
-            $network = $_SESSION['ussd_data']['network'];
-
-            switch ($network) {
-                case 'MTN':
-                    if (preg_match('/^(054|053|055|024|023|025|059)[0-9]{7}$/', $input)) {
-                        $isValidNumber = true;
-                    } else {
-                        $errorMessage = "Invalid MTN MobileMoney number.";
-                    }
-                    break;
-                case 'AirtelTigo':
-                    if (preg_match('/^(027|026|056|057)[0-9]{7}$/', $input)) {
-                        $isValidNumber = true;
-                    } else {
-                        $errorMessage = "Invalid AirtelTigo Cash number.";
-                    }
-                    break;
-                case 'Telecel':
-                    if (preg_match('/^(020|050)[0-9]{7}$/', $input)) {
-                        $isValidNumber = true;
-                    } else {
-                        $errorMessage = "Invalid Telecel Cash number.";
-                    }
-                    break;
-                default:
-                    $errorMessage = "Invalid network selected.";
-                    break;
-            }
-
-            if ($isValidNumber) {
-                try {
-                    // Insert recipient number and sender_id into transaction table
-                    $stmt = $pdo->prepare("INSERT INTO transactions (sender_id, recipient_phone, network) VALUES (?, ?, ?)");
-                    $stmt->execute([$_SESSION['user_id'], $input, $network]);
-                    $_SESSION['transaction_id'] = $pdo->lastInsertId();
-                    $_SESSION['ussd_data']['recipient_phone'] = $input; // Store for later use
-                    $_SESSION['ussd_state'] = 'confirm_recipient';
-                    $response = "Confirm recipient: " . $input . "\n1. Confirm\n#. Back";
-                } catch (PDOException $e) {
-                    $response = "Error saving recipient. Please try again:\nEnter " . $network . " number:\n#. Back";
-                }
+            $banks = [
+                '1' => 'GCB',
+                '2' => 'Ecobank',
+                '3' => 'GT Bank',
+                '4' => 'Prudential',
+                '5' => 'UBA'
+            ];
+            if (isset($banks[$input])) {
+                $_SESSION['ussd_data']['bank_name'] = $banks[$input];
+                $_SESSION['ussd_state'] = 'enter_bank_account_number';
+                $response = "Enter Account Number:\n#. Back";
             } else {
-                $response = $errorMessage . "\nPlease enter a valid " . $network . " number:\n#. Back";
+                $response = "Invalid option. Please select:\n1. GCB\n2. Ecobank\n3. GTBank\n4. Prudential Bank\n5. UBA\n#. Back";
             }
         }
         break;
  
-    case 'confirm_recipient':
-        if ($input == '1') {
-            $_SESSION['ussd_state'] = 'enter_amount';
-            $response = "Enter amount to transfer:";
-        } else if ($input == '#') {
-            $_SESSION['ussd_state'] = 'enter_recipient';
-            $response = "Enter " . $_SESSION['ussd_data']['network'] . " number:";
+    case 'enter_bank_account_number':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'select_bank';
+            $response = "Select Bank:\n1. GCB\n2. Ecobank\n3. GTBank\n4. Prudential Bank\n5. UBA\n#. Back";
+        } else {
+            // Dummy data
+            $dummy_accounts = [
+                ['name' => 'Kwaku Frimpong', 'account' => '11005674893412', 'bank' => 'GCB'],
+                ['name' => 'Adwoa Mensah', 'account' => '23116783452611', 'bank' => 'GCB'],
+                ['name' => 'Kofi Agyekum', 'account' => '11230007658713', 'bank' => 'GT Bank'],
+                ['name' => 'Chris Frank', 'account' => '140071225014', 'bank' => 'GT Bank'],
+                ['name' => 'Eunice Dede', 'account' => '2435680003452', 'bank' => 'Prudential'],
+                ['name' => 'Ella Dzifa', 'account' => '14557869023', 'bank' => 'Prudential'],
+                ['name' => 'Christabel Acquah', 'account' => '32467589223', 'bank' => 'Ecobank'],
+                ['name' => 'John Ofori', 'account' => '22456178920', 'bank' => 'Ecobank'],
+                ['name' => 'Gideon Yartey', 'account' => '770113425672', 'bank' => 'UBA'],
+                ['name' => 'Erica Martins', 'account' => '223145678890', 'bank' => 'UBA'],
+            ];
+            $found = null;
+            foreach ($dummy_accounts as $acc) {
+                if ($acc['account'] === $input && $acc['bank'] === $_SESSION['ussd_data']['bank_name']) {
+                    $found = $acc;
+                    break;
+                }
+            }
+            if ($found) {
+                $_SESSION['ussd_data']['bank_account'] = $found['account'];
+                $_SESSION['ussd_data']['bank_account_name'] = $found['name'];
+                $_SESSION['ussd_state'] = 'confirm_bank_recipient';
+                $response = "Send to: {$found['name']}\nAccount: {$found['account']}\nBank: {$found['bank']}\n1. Confirm\n#. Back";
+            } else {
+                $response = "Account not found for selected bank. Please enter a valid account number:\n#. Back";
+            }
+        }
+        break;
+ 
+    case 'confirm_bank_recipient':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_bank_account_number';
+            $response = "Enter Account Number:\n#. Back";
+        } else if ($input == '1') {
+            $_SESSION['ussd_state'] = 'enter_bank_amount';
+            $response = "Enter amount to send to bank account:\n#. Back";
         } else {
             $response = "Invalid option. Please select:\n1. Confirm\n#. Back";
         }
         break;
  
-    case 'enter_amount':
-        if (is_numeric($input) && $input > 0) {
-            try {
-                // Check if user has sufficient balance
-                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
-                $stmt->execute([$_SESSION['user_id']]);
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                
-                if ($user && $user['balance'] >= $input) {
-                    // Update amount in transaction table
-                    $stmt = $pdo->prepare("UPDATE transactions SET amount = ? WHERE id = ?");
-                    $stmt->execute([$input, $_SESSION['transaction_id']]);
-                    
-                    $_SESSION['ussd_data']['amount'] = $input; // Store for later use
-                    
-                    $_SESSION['ussd_state'] = 'enter_reference';
-                    $response = "Enter reference:";
-                } else {
-                    $response = "Insufficient balance. Please enter a valid amount:";
-                }
-            } catch (PDOException $e) {
-                $response = "Error checking balance. Please try again:\nEnter amount to transfer:";
-            }
+    case 'enter_bank_amount':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'confirm_bank_recipient';
+            $response = "Send to: {$_SESSION['ussd_data']['bank_account_name']}\nAccount: {$_SESSION['ussd_data']['bank_account']}\nBank: {$_SESSION['ussd_data']['bank_name']}\n1. Confirm\n#. Back";
+        } else if (is_numeric($input) && $input > 0) {
+            $_SESSION['ussd_data']['bank_amount'] = $input;
+            $_SESSION['ussd_state'] = 'enter_bank_pin';
+            $response = "Enter your PIN to confirm transfer:\n#. Back";
         } else {
-            $response = "Invalid amount. Please enter a valid amount:";
+            $response = "Invalid amount. Please enter a valid amount:\n#. Back";
         }
         break;
- 
-    case 'enter_reference':
-        if (!empty($input)) {
-            try {
-                // Update reference in transaction table
-                $stmt = $pdo->prepare("UPDATE transactions SET reference = ? WHERE id = ?");
-                $stmt->execute([$input, $_SESSION['transaction_id']]);
-                
-                $_SESSION['ussd_data']['reference'] = $input; // Store for later use
-                
-                $_SESSION['ussd_state'] = 'enter_pin';
-                $response = "Enter your PIN:";
-            } catch (PDOException $e) {
-                $response = "Error saving reference. Please try again:\nEnter reference:";
-            }
-        } else if ($input == '#') {
-            $_SESSION['ussd_state'] = 'enter_amount';
-            $response = "Enter amount to transfer:";
-        } else {
-            $response = "Reference cannot be empty. Please enter a reference:";
-        }
-        break;
- 
-    case 'enter_pin':
-        if ($input == $correctPin) {
-            try {
-                $amount = $_SESSION['ussd_data']['amount'];
-                $recipient_phone = $_SESSION['ussd_data']['recipient_phone'];
-                
-                $pdo->beginTransaction();
-                
-                // Update sender's balance
-                $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
-                $stmt->execute([$amount, $_SESSION['user_id']]);
-                
-                // Update recipient's balance
-                $stmt = $pdo->prepare("UPDATE users SET balance = balance + ? WHERE phone = ?");
-                $stmt->execute([$amount, $recipient_phone]);
-                
-                // Update PIN in users table (as per instruction)
-                $stmt = $pdo->prepare("UPDATE users SET pin = ? WHERE id = ?");
-                $stmt->execute([$correctPin, $_SESSION['user_id']]);
-                
-                // Update transaction status
-                $stmt = $pdo->prepare("UPDATE transactions SET status = 'completed' WHERE id = ?");
-                $stmt->execute([$_SESSION['transaction_id']]);
-                
-                $pdo->commit();
-                
-                $_SESSION['ussd_state'] = 'transaction_success';
-                $_SESSION['display'] = "Transfer successful!\n\n1. Back to main menu";
-                header('Location: index.php');
-                exit;
-            } catch (PDOException $e) {
-                $pdo->rollBack();
-                $response = "Error processing transfer: " . $e->getMessage() . "\n\n1. Back to main menu";
-            }
+
+    case 'enter_bank_pin':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_bank_amount';
+            $response = "Enter amount to send to bank account:\n#. Back";
+        } else if ($input == $correctPin) {
+            $_SESSION['ussd_state'] = 'transaction_success';
+            $_SESSION['display'] = "Bank transfer successful!\nAccount: {$_SESSION['ussd_data']['bank_account']}\nAmount: GHS " . number_format($_SESSION['ussd_data']['bank_amount'], 2) . "\n\n1. Back to main menu";
+            header('Location: index.php');
+            exit;
         } else {
             $_SESSION['pin_attempts']++;
             if ($_SESSION['pin_attempts'] >= 3) {
-                $response = "Too many incorrect attempts. Your session has been terminated.";
-                session_destroy();
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
             } else {
                 $remainingAttempts = 3 - $_SESSION['pin_attempts'];
-                $response = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:";
+                $response = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:\n#. Back";
             }
-        }
-        break;
- 
-    case 'transfer_success':
-        if ($input == '1') {
-            $_SESSION['ussd_state'] = 'start';
-            $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Investment\n4. Utility Payment\n5. Statement";
-        } else {
-            $response = "Invalid option. Please select:\n1. Back to main menu";
         }
         break;
  
