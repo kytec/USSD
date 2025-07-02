@@ -599,27 +599,13 @@ switch ($_SESSION['ussd_state']) {
 
     case 'enter_meter_amount':
         if ($input == '#') {
-            $_SESSION['ussd_state'] = 'select_meter_type';
-            $response = "Select Meter Type:\n1. Prepaid\n2. Postpaid\n#. Back";
+            $_SESSION['ussd_state'] = 'enter_meter_number';
+            $response = "Enter meter number:\n#. Back";
         } else if (is_numeric($input) && $input > 0) {
-            try {
-                // Check if user has sufficient balance
-                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
-                $stmt->execute([$_SESSION['user_id']]);
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                
-                if ($user && $user['balance'] >= $input) {
-                    $_SESSION['ussd_data']['amount'] = $input;
-                    $_SESSION['ussd_state'] = 'enter_pin_for_meter';
-                    $response = "Enter your PIN to confirm meter top-up of GHS " . number_format($input, 2) . 
-                               " for meter " . $_SESSION['ussd_data']['meter_number'] . 
-                               " (" . $_SESSION['ussd_data']['meter_type'] . "):\n#. Back";
-                } else {
-                    $response = "Insufficient balance. Please enter a valid amount:\n#. Back";
-                }
-            } catch (PDOException $e) {
-                $response = "Error processing request. Please try again:\nEnter amount to top up:\n#. Back";
-            }
+            $_SESSION['ussd_data']['meter_amount'] = $input;
+            $_SESSION['ussd_state'] = 'confirm_meter_topup';
+            $response = "Enter your PIN to confirm meter top-up of GHS " . number_format($input, 2) .
+                " for meter {$_SESSION['ussd_data']['meter_number']} ({$_SESSION['ussd_data']['meter_type']})\nName: {$_SESSION['ussd_data']['meter_name']}\n#. Back";
         } else {
             $response = "Invalid amount. Please enter a valid amount:\n#. Back";
         }
@@ -1063,17 +1049,106 @@ switch ($_SESSION['ussd_state']) {
             switch ($input) {
                 case '1':
                     $_SESSION['ussd_data']['meter_type'] = 'Prepaid';
-                    $_SESSION['ussd_state'] = 'enter_utility_account';
-                    $response = "Enter your ECG meter number:\n#. Back";
+                    $_SESSION['ussd_state'] = 'enter_meter_number';
+                    $response = "Enter meter number:\n#. Back";
                     break;
                 case '2':
-                    $_SESSION['ussd_data']['meter_type'] = 'Postpaid';
-                    $_SESSION['ussd_state'] = 'enter_utility_account';
-                    $response = "Enter your ECG meter number:\n#. Back";
+                    $_SESSION['ussd_data']['meter_type'] = 'PostPaid';
+                    $_SESSION['ussd_state'] = 'enter_meter_number';
+                    $response = "Enter meter number:\n#. Back";
                     break;
                 default:
                     $response = "Invalid option. Please select:\n1. Prepaid\n2. Postpaid\n#. Back";
                     break;
+            }
+        }
+        break;
+
+    case 'enter_meter_number':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'select_ecg_meter_type';
+            $response = "Select ECG Meter Type:\n1. Prepaid\n2. Postpaid\n#. Back";
+        } else {
+            $dummy_meters = [
+                ['meter' => 'AB1234567', 'name' => 'John Doe', 'type' => 'Prepaid'],
+                ['meter' => 'CD2345678', 'name' => 'Jane Smith', 'type' => 'PostPaid'],
+                ['meter' => 'EF3456789', 'name' => 'Alice Johnson', 'type' => 'PostPaid'],
+                ['meter' => 'GH4567890', 'name' => 'Bob Brown', 'type' => 'Prepaid'],
+                ['meter' => 'IJ5678901', 'name' => 'Charlie Davis', 'type' => 'PostPaid'],
+                ['meter' => 'KL6789012', 'name' => 'Emily Clark', 'type' => 'Prepaid'],
+                ['meter' => 'MN7890123', 'name' => 'David Wilson', 'type' => 'Prepaid'],
+                ['meter' => 'OP8901234', 'name' => 'Sarah Taylor', 'type' => 'Prepaid'],
+                ['meter' => 'QR9012345', 'name' => 'Michael Lee', 'type' => 'PostPaid'],
+                ['meter' => 'ST0123456', 'name' => 'Jessica white', 'type' => 'PostPaid'],
+            ];
+            $found = null;
+            foreach ($dummy_meters as $meter) {
+                if ($meter['meter'] === $input && strtolower($meter['type']) === strtolower($_SESSION['ussd_data']['meter_type'])) {
+                    $found = $meter;
+                    break;
+                }
+            }
+            if ($found) {
+                $_SESSION['ussd_data']['meter_number'] = $found['meter'];
+                $_SESSION['ussd_data']['meter_name'] = $found['name'];
+                $_SESSION['ussd_state'] = 'enter_meter_amount';
+                $response = "Enter amount to top up:\n#. Back";
+            } else {
+                $response = "Invalid meter number or meter type. Please enter a valid meter number:\n#. Back";
+            }
+        }
+        break;
+    case 'enter_meter_amount':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_meter_number';
+            $response = "Enter meter number:\n#. Back";
+        } else if (is_numeric($input) && $input > 0) {
+            $_SESSION['ussd_data']['meter_amount'] = $input;
+            $_SESSION['ussd_state'] = 'confirm_meter_topup';
+            $response = "Enter your PIN to confirm meter top-up of GHS " . number_format($input, 2) .
+                " for meter {$_SESSION['ussd_data']['meter_number']} ({$_SESSION['ussd_data']['meter_type']})\nName: {$_SESSION['ussd_data']['meter_name']}\n#. Back";
+        } else {
+            $response = "Invalid amount. Please enter a valid amount:\n#. Back";
+        }
+        break;
+    case 'confirm_meter_topup':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_meter_amount';
+            $response = "Enter amount to top up:\n#. Back";
+        } else if ($input == $correctPin) {
+            // Insert ECG transaction into utility_payments table
+            try {
+                $pdo->beginTransaction();
+                $stmt = $pdo->prepare("INSERT INTO utility_payments (user_id, utility_type, account_number, meter_type, amount, payment_date) VALUES (?, ?, ?, ?, ?, GETDATE())");
+                $stmt->execute([
+                    $_SESSION['user_id'],
+                    'ECG',
+                    $_SESSION['ussd_data']['meter_number'],
+                    $_SESSION['ussd_data']['meter_type'],
+                    $_SESSION['ussd_data']['meter_amount']
+                ]);
+                $pdo->commit();
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Meter top-up successful!\nName: {$_SESSION['ussd_data']['meter_name']}\nMeter: {$_SESSION['ussd_data']['meter_number']}\nType: {$_SESSION['ussd_data']['meter_type']}\nAmount: GHS " . number_format($_SESSION['ussd_data']['meter_amount'], 2) . "\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            } catch (PDOException $e) {
+                $pdo->rollBack();
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Meter top-up failed: " . $e->getMessage() . "\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            }
+        } else {
+            $_SESSION['pin_attempts']++;
+            if ($_SESSION['pin_attempts'] >= 3) {
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            } else {
+                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
+                $response = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:\n#. Back";
             }
         }
         break;
