@@ -8,6 +8,120 @@ GO
 USE USSDServiceDB;
 GO
 
+-- Create menu_categories table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'menu_categories')
+BEGIN
+    CREATE TABLE menu_categories (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        name VARCHAR(50) NOT NULL,
+        display_order INT NOT NULL DEFAULT 0,
+        is_active BIT DEFAULT 1,
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE()
+    );
+END
+GO
+
+-- Create menu_items table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'menu_items')
+BEGIN
+    CREATE TABLE menu_items (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        category_id INT NULL,
+        name VARCHAR(100) NOT NULL,
+        display_text VARCHAR(200) NOT NULL,
+        menu_number VARCHAR(10) NOT NULL,
+        action_type VARCHAR(50) NOT NULL, -- 'page', 'function', 'external'
+        action_value VARCHAR(200) NOT NULL, -- page name, function name, or external URL
+        display_order INT NOT NULL DEFAULT 0,
+        is_active BIT DEFAULT 1,
+        requires_auth BIT DEFAULT 0,
+        min_balance DECIMAL(10,2) DEFAULT 0.00,
+        user_type VARCHAR(20) DEFAULT 'all', -- 'all', 'premium', 'basic'
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE(),
+        CONSTRAINT FK_MenuItems_Categories FOREIGN KEY (category_id) REFERENCES menu_categories(id)
+    );
+END
+GO
+
+-- Create user_menu_preferences table
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'user_menu_preferences')
+BEGIN
+    CREATE TABLE user_menu_preferences (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NOT NULL,
+        menu_item_id INT NOT NULL,
+        is_visible BIT DEFAULT 1,
+        display_order INT DEFAULT 0,
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE(),
+        CONSTRAINT FK_UserMenuPrefs_Users FOREIGN KEY (user_id) REFERENCES users(id),
+        CONSTRAINT FK_UserMenuPrefs_MenuItems FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
+    );
+END
+GO
+
+-- Create menu_usage_logs table for analytics
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'menu_usage_logs')
+BEGIN
+    CREATE TABLE menu_usage_logs (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        user_id INT NULL,
+        menu_item_id INT NOT NULL,
+        session_id VARCHAR(100) NULL,
+        accessed_at DATETIME DEFAULT GETDATE(),
+        ip_address VARCHAR(45) NULL,
+        user_agent TEXT NULL,
+        CONSTRAINT FK_MenuUsageLogs_Users FOREIGN KEY (user_id) REFERENCES users(id),
+        CONSTRAINT FK_MenuUsageLogs_MenuItems FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
+    );
+END
+GO
+
+-- Insert default menu categories
+IF NOT EXISTS (SELECT * FROM menu_categories WHERE name = 'Main Menu')
+BEGIN
+    INSERT INTO menu_categories (name, display_order) VALUES ('Main Menu', 1);
+END
+GO
+
+-- Insert default menu items
+IF NOT EXISTS (SELECT * FROM menu_items WHERE name = 'Send Money')
+BEGIN
+    INSERT INTO menu_items (category_id, name, display_text, menu_number, action_type, action_value, display_order, requires_auth, min_balance) 
+    VALUES (1, 'Send Money', 'Send Money', '1', 'function', 'send_money', 1, 1, 1.00);
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM menu_items WHERE name = 'Buy Airtime/Data')
+BEGIN
+    INSERT INTO menu_items (category_id, name, display_text, menu_number, action_type, action_value, display_order, requires_auth, min_balance) 
+    VALUES (1, 'Buy Airtime/Data', 'Buy Airtime/Data', '2', 'function', 'buy_airtime_data', 2, 1, 1.00);
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM menu_items WHERE name = 'Investment')
+BEGIN
+    INSERT INTO menu_items (category_id, name, display_text, menu_number, action_type, action_value, display_order, requires_auth, min_balance) 
+    VALUES (1, 'Investment', 'Investment', '3', 'function', 'investment', 3, 1, 10.00);
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM menu_items WHERE name = 'Utility Payment')
+BEGIN
+    INSERT INTO menu_items (category_id, name, display_text, menu_number, action_type, action_value, display_order, requires_auth, min_balance) 
+    VALUES (1, 'Utility Payment', 'Utility Payment', '4', 'function', 'utility_payment', 4, 1, 1.00);
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM menu_items WHERE name = 'Statement')
+BEGIN
+    INSERT INTO menu_items (category_id, name, display_text, menu_number, action_type, action_value, display_order, requires_auth, min_balance) 
+    VALUES (1, 'Statement', 'Statement', '5', 'function', 'statement', 5, 1, 0.00);
+END
+GO
+
 -- Create users table
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'users')
 BEGIN

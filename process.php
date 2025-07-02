@@ -20,8 +20,14 @@ if (isset($_POST['action']) && $_POST['action'] === 'cancel') {
     // Start a new session
     session_start();
     
-    // Set the welcome message directly
-    $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Investment\n4. Utility Payment\n5. Statement";
+    // Set the welcome message using database-driven menu
+    require_once 'menu_manager.php';
+    $menuManager = new MenuManager($conn);
+    $userBalance = 900.00; // Default balance for demo
+    $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+    
+    $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+    $_SESSION['display'] = $menuManager->buildMenuDisplay($menuItems);
     
     // Redirect to index page
     header('Location: index.php');
@@ -35,31 +41,50 @@ $correctPin = '1234';
 switch ($_SESSION['ussd_state']) {
  
     case 'start':
-        switch ($input) {
-            case '1':
-                $_SESSION['ussd_state'] = 'select_network';
-                $response = "Select Network:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
-                break;
-            case '2':
-                $_SESSION['ussd_state'] = 'buy_airtime_data';
-                unset($_SESSION['ussd_data']['service_step']);
-                $response = "Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back";
-                break;
-            case '3':
-                $_SESSION['ussd_state'] = 'investment';
-                $response = "Investment Options:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back\n\nSelect an option:";
-                break;
-            case '4':
-                $_SESSION['ussd_state'] = 'utility_payment';
-                $response = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n#. Back";
-                break;
-            case '5':
-                $_SESSION['ussd_state'] = 'view_statement';
-                // The statement logic is already handled in view_statement
-                break;
-            default:
-                $response = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Investment\n4. Utility Payment\n5. Statement";
-                break;
+        // Use database-driven menu system
+        require_once 'menu_manager.php';
+        $menuManager = new MenuManager($conn);
+        $userBalance = 900.00; // Default balance for demo
+        $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+        
+        $menuItem = $menuManager->getMenuItemByNumber($input);
+        
+        if ($menuItem) {
+            // Log menu usage
+            $menuManager->logMenuUsage($menuItem['id'], $userId, session_id());
+            
+            // Handle menu action based on action_type and action_value
+            switch ($menuItem['action_value']) {
+                case 'send_money':
+                    $_SESSION['ussd_state'] = 'select_network';
+                    $response = "Select Network:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
+                    break;
+                case 'buy_airtime_data':
+                    $_SESSION['ussd_state'] = 'buy_airtime_data';
+                    unset($_SESSION['ussd_data']['service_step']);
+                    $response = "Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back";
+                    break;
+                case 'investment':
+                    $_SESSION['ussd_state'] = 'investment';
+                    $response = "Investment Options:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back\n\nSelect an option:";
+                    break;
+                case 'utility_payment':
+                    $_SESSION['ussd_state'] = 'utility_payment';
+                    $response = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n#. Back";
+                    break;
+                case 'statement':
+                    $_SESSION['ussd_state'] = 'view_statement';
+                    // The statement logic is already handled in view_statement
+                    break;
+                default:
+                    // Handle external actions or custom functions
+                    $response = "Processing {$menuItem['display_text']}...\n\n1. Back to main menu";
+                    break;
+            }
+        } else {
+            // Invalid menu selection - show main menu
+            $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+            $response = $menuManager->buildMenuDisplay($menuItems);
         }
         break;
  

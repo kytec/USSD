@@ -11,6 +11,9 @@ ini_set('display_errors', 1);
 try {
     $pdo = new PDO("sqlsrv:Server=$serverName;Database=$database", $uid, $pwd);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
+    // Also create a $conn variable for compatibility with menu manager
+    $conn = $pdo;
 } catch(PDOException $e) {
     die("Connection failed: " . $e->getMessage());
 }
