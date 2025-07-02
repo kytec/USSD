@@ -235,4 +235,4 @@ switch ($_SESSION['data_state']) {
 
 header('Location: index.php');
 exit;
-?> 
+?>

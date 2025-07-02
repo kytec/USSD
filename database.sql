@@ -139,11 +139,19 @@ BEGIN
         user_id INT NOT NULL,
         utility_type VARCHAR(20) NOT NULL, -- 'ECG' or 'Water'
         account_number VARCHAR(20) NOT NULL,
+        meter_type VARCHAR(10) NULL, -- 'Prepaid' or 'Postpaid' for ECG
         amount DECIMAL(10,2) NOT NULL,
         payment_date DATETIME DEFAULT GETDATE(),
         status VARCHAR(20) DEFAULT 'completed',
         CONSTRAINT FK_UtilityPayments_Users FOREIGN KEY (user_id) REFERENCES users(id)
     );
+END
+GO
+
+-- Add meter_type column to existing utility_payments table if it doesn't exist
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('utility_payments') AND name = 'meter_type')
+BEGIN
+    ALTER TABLE utility_payments ADD meter_type VARCHAR(10) NULL;
 END
 GO
 
