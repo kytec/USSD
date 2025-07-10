@@ -1,3 +1,9 @@
+<?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+session_start();
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -54,18 +60,14 @@
         <h2>USSD Simulator</h2>
         <div class="ussd-display" id="display">
             <?php
-            session_start();
             if (isset($_SESSION['display'])) {
                 echo htmlspecialchars($_SESSION['display']);
             } else {
-                // Use database-driven menu
-                require_once 'db_connect.php';
+                // Use simple menu system
                 require_once 'menu_manager.php';
-                
-                $menuManager = new MenuManager($conn);
+                $menuManager = new MenuManager(null); // No database needed
                 $userBalance = 900.00; // Default balance for demo
                 $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
-                
                 $menuItems = $menuManager->getMainMenu($userId, $userBalance);
                 $menuDisplay = $menuManager->buildMenuDisplay($menuItems);
                 echo htmlspecialchars($menuDisplay);
@@ -73,7 +75,7 @@
             ?>
         </div>
         <form action="process.php" method="POST" class="ussd-input">
-            <input type="text" name="ussd_input" placeholder="Enter your choice" required>
+            <input type="text" name="ussd_input" placeholder="Enter your choice">
             <button type="submit">Send</button>
             <button type="submit" name="action" value="cancel">Cancel</button>
         </form>

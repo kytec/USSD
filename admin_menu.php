@@ -1,9 +1,18 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+echo "DEBUG: Start of admin_menu.php<br>";
+
 session_start();
+echo "DEBUG: After session_start()<br>";
 require_once 'db_connect.php';
+echo "DEBUG: After db_connect.php<br>";
 require_once 'menu_manager.php';
+echo "DEBUG: After menu_manager.php<br>";
 
 $menuManager = new MenuManager($conn);
+echo "DEBUG: After creating MenuManager<br>";
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -60,6 +69,19 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
     $menuItems[] = $row;
 }
 
+$menuItems = $menuManager->getMainMenu();
+echo "DEBUG: After getMainMenu<br>";
+
 // Get usage statistics
 $usageStats = $menuManager->getMenuUsageStats(30);
+
+echo "<pre>DEBUG: menuItems = " . print_r($menuItems, true) . "</pre>";
+echo "DEBUG: Before echoing menu<br>";
+echo $menuManager->buildMenuDisplay($menuItems);
+echo "DEBUG: After echoing menu<br>";
+
+echo "DEBUG: Before HTML output<br>";
+if (empty($menuItems)) {
+    echo "DEBUG: menuItems is empty<br>";
+}
 ?>
