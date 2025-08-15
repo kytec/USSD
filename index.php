@@ -63,9 +63,10 @@ session_start();
             if (isset($_SESSION['display'])) {
                 echo htmlspecialchars($_SESSION['display']);
             } else {
-                // Use simple menu system
+                // DB-driven menu
+                require_once 'db_connect.php';
                 require_once 'menu_manager.php';
-                $menuManager = new MenuManager(null); // No database needed
+                $menuManager = new MenuManager($pdo);
                 $userBalance = 900.00; // Default balance for demo
                 $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
                 $menuItems = $menuManager->getMainMenu($userId, $userBalance);

@@ -275,3 +275,167 @@ BEGIN
     INSERT INTO users (phone, pin, balance) VALUES ('0200000000', '1234', 900.00);
 END
 GO 
+
+-- Menu nodes table for hierarchical, admin-manageable menus
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'menu_nodes')
+BEGIN
+    CREATE TABLE menu_nodes (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        parent_id INT NULL,
+        code VARCHAR(64) NOT NULL UNIQUE,
+        label VARCHAR(200) NOT NULL,
+        menu_number VARCHAR(5) NOT NULL,
+        action_type VARCHAR(20) NOT NULL,       -- navigate, function, external
+        action_value VARCHAR(200) NULL,
+        requires_auth BIT DEFAULT 0,
+        min_balance DECIMAL(10,2) DEFAULT 0.00,
+        is_active BIT DEFAULT 1,
+        display_order INT NOT NULL DEFAULT 0,
+        metadata NVARCHAR(MAX) NULL,
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE()
+    );
+END
+GO
+
+-- Seed main menu nodes (root level)
+IF NOT EXISTS (SELECT * FROM menu_nodes WHERE code = 'root')
+BEGIN
+    INSERT INTO menu_nodes (parent_id, code, label, menu_number, action_type, action_value, display_order)
+    VALUES (NULL, 'root', 'Main Menu', '0', 'navigate', NULL, 0);
+END
+GO
+
+DECLARE @rootId INT;
+SELECT @rootId = id FROM menu_nodes WHERE code = 'root';
+
+-- Send Money
+IF NOT EXISTS (SELECT * FROM menu_nodes WHERE code = 'send_money')
+BEGIN
+    INSERT INTO menu_nodes (parent_id, code, label, menu_number, action_type, action_value, display_order, requires_auth, min_balance)
+    VALUES (@rootId, 'send_money', 'Send Money', '1', 'function', 'send_money', 1, 1, 1.00);
+END
+GO
+-- Buy Airtime/Data
+IF NOT EXISTS (SELECT * FROM menu_nodes WHERE code = 'buy_airtime_data')
+BEGIN
+    INSERT INTO menu_nodes (parent_id, code, label, menu_number, action_type, action_value, display_order, requires_auth, min_balance)
+    VALUES (@rootId, 'buy_airtime_data', 'Buy Airtime/Data', '2', 'function', 'buy_airtime_data', 2, 1, 1.00);
+END
+GO
+-- Investment
+IF NOT EXISTS (SELECT * FROM menu_nodes WHERE code = 'investment')
+BEGIN
+    INSERT INTO menu_nodes (parent_id, code, label, menu_number, action_type, action_value, display_order, requires_auth, min_balance)
+    VALUES (@rootId, 'investment', 'Investment', '3', 'function', 'investment', 3, 1, 10.00);
+END
+GO
+-- Utility Payment
+IF NOT EXISTS (SELECT * FROM menu_nodes WHERE code = 'utility_payment')
+BEGIN
+    INSERT INTO menu_nodes (parent_id, code, label, menu_number, action_type, action_value, display_order, requires_auth, min_balance)
+    VALUES (@rootId, 'utility_payment', 'Utility Payment', '4', 'function', 'utility_payment', 4, 1, 1.00);
+END
+GO
+-- Statement
+IF NOT EXISTS (SELECT * FROM menu_nodes WHERE code = 'statement')
+BEGIN
+    INSERT INTO menu_nodes (parent_id, code, label, menu_number, action_type, action_value, display_order)
+    VALUES (@rootId, 'statement', 'Statement', '5', 'function', 'statement', 5);
+END
+GO 
+
+-- Create submenu table (children of menu_nodes)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'menu_subnodes')
+BEGIN
+    CREATE TABLE menu_subnodes (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        parent_node_id INT NOT NULL,                 -- FK to menu_nodes(id)
+        code VARCHAR(64) NOT NULL UNIQUE,
+        label VARCHAR(200) NOT NULL,
+        menu_number VARCHAR(5) NOT NULL,
+        action_type VARCHAR(20) NOT NULL,           -- 'navigate','state','external'
+        action_value VARCHAR(200) NULL,
+        is_active BIT DEFAULT 1,
+        display_order INT NOT NULL DEFAULT 0,
+        metadata NVARCHAR(MAX) NULL,                -- JSON: e.g., {"network":"MTN","next_display":"Enter MTN MobileMoney number:\n#. Back"}
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE(),
+        CONSTRAINT FK_SubNodes_Parent FOREIGN KEY (parent_node_id) REFERENCES menu_nodes(id)
+    );
+END
+GO
+
+-- Seed submenus for 'send_money'
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'sm_mtn')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='send_money'), 'sm_mtn', 'MTN MobileMoney', '1', 'state', 'enter_recipient', 1, '{"network":"MTN","next_display":"Enter MTN MobileMoney number:\n#. Back"}');
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'sm_telecel')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='send_money'), 'sm_telecel', 'Telecel Cash', '2', 'state', 'enter_recipient', 2, '{"network":"Telecel","next_display":"Enter Telecel Cash number:\n#. Back"}');
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'sm_airtel')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='send_money'), 'sm_airtel', 'AirtelTigo Cash', '3', 'state', 'enter_recipient', 3, '{"network":"AirtelTigo","next_display":"Enter AirtelTigo Cash number:\n#. Back"}');
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'sm_bank')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='send_money'), 'sm_bank', 'Bank Account', '4', 'state', 'select_bank', 4, '{"next_display":"Select Bank:\n1. GCB\n2. Ecobank\n3. GTBank\n4. Prudential Bank\n5. UBA\n#. Back"}');
+END
+GO
+
+-- Seed submenus for 'buy_airtime_data'
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'bad_airtime')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='buy_airtime_data'), 'bad_airtime', 'Buy Airtime', '1', 'state', 'buy_airtime_data', 1, '{"service_type":"airtime","service_step":1,"next_display":"Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back"}');
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'bad_data')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='buy_airtime_data'), 'bad_data', 'Buy Data', '2', 'state', 'buy_airtime_data', 2, '{"service_type":"data","service_step":1,"next_display":"Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back"}');
+END
+GO
+
+-- Seed submenus for 'investment'
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'inv_fd')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='investment'), 'inv_fd', 'Fixed Deposit', '1', 'state', 'fixed_deposit', 1, '{"next_display":"Fixed Deposit Options:\n1. 3 Months (5% p.a.)\n2. 6 Months (7% p.a.)\n3. 12 Months (10% p.a.)\n#. Back\n\nSelect duration:"}');
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'inv_tbills')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='investment'), 'inv_tbills', 'Treasury Bills', '2', 'state', 'treasury_bills', 2, '{"next_display":"Enter amount to invest in Treasury Bills:\n#. Back"}');
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'inv_mutual')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='investment'), 'inv_mutual', 'Mutual Funds', '3', 'state', 'mutual_funds', 3, '{"next_display":"Enter amount to invest in Mutual Funds:\n#. Back"}');
+END
+GO
+
+-- Seed submenus for 'utility_payment'
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'utl_ecg')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='utility_payment'), 'utl_ecg', 'ECG (Electricity)', '1', 'state', 'select_ecg_meter_type', 1, '{"next_display":"Select ECG Meter Type:\n1. Prepaid\n2. Postpaid\n#. Back"}');
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM menu_subnodes WHERE code = 'utl_water')
+BEGIN
+    INSERT INTO menu_subnodes (parent_node_id, code, label, menu_number, action_type, action_value, display_order, metadata)
+    VALUES ((SELECT id FROM menu_nodes WHERE code='utility_payment'), 'utl_water', 'Water', '2', 'state', 'enter_utility_account', 2, '{"utility_type":"Water","next_display":"Enter your Water account number:\n#. Back"}');
+END
+GO 

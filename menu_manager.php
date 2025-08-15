@@ -11,10 +11,15 @@ class MenuManager {
     }
     
     /**
-     * Get main menu items for a user
+     * Get main menu items for a user (from DB if available, else fallback)
      */
     public function getMainMenu($userId = null, $userBalance = null) {
-        // Simple hardcoded menu items to avoid database dependency
+        $dbItems = $this->getMenuNodesFromDb($userId, $userBalance);
+        if ($dbItems !== null && count($dbItems) > 0) {
+            return $dbItems;
+        }
+        
+        // Fallback simple hardcoded menu items
         $menuItems = [
             [
                 'id' => 1,
@@ -92,21 +97,263 @@ class MenuManager {
         
         return array_values($menuItems);
     }
-    
+
     /**
-     * Get user-specific menu preference
+     * Get submenu nodes for a specific parent menu
      */
-    private function getUserMenuPreference($userId, $menuItemId) {
-        // Simple implementation without database - return null (no preferences)
-        return null;
+    public function getSubmenuNodes($parentNodeCode, $userId = null, $userBalance = null) {
+        if (!$this->pdo) {
+            return null;
+        }
+        
+        try {
+            // Ensure tables exist
+            $stmt = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_nodes'");
+            if ($stmt->fetchColumn() != 1) {
+                return null;
+            }
+            
+            $stmt = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_subnodes'");
+            if ($stmt->fetchColumn() != 1) {
+                return null;
+            }
+            
+            // Get parent node id
+            $parentStmt = $this->pdo->prepare("SELECT id FROM menu_nodes WHERE code = ?");
+            $parentStmt->execute([$parentNodeCode]);
+            $parentId = $parentStmt->fetchColumn();
+            
+            if (!$parentId) {
+                return null;
+            }
+            
+            // Fetch active submenu nodes ordered by display_order
+            $sql = "SELECT id, code, label, menu_number, action_type, action_value, is_active, display_order, metadata
+                    FROM menu_subnodes 
+                    WHERE parent_node_id = ? AND is_active = 1 
+                    ORDER BY display_order ASC";
+            
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$parentId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            if (!$rows) {
+                return [];
+            }
+            
+            // Map to consistent format
+            $mapped = [];
+            foreach ($rows as $index => $row) {
+                $mapped[] = [
+                    'id' => (int)$row['id'],
+                    'code' => $row['code'],
+                    'name' => $row['label'],
+                    'display_text' => $row['label'],
+                    'menu_number' => (string)$row['menu_number'],
+                    'action_type' => $row['action_type'],
+                    'action_value' => $row['action_value'],
+                    'display_order' => (int)$row['display_order'],
+                    'is_active' => (bool)$row['is_active'],
+                    'metadata' => $row['metadata'] ? json_decode($row['metadata'], true) : null
+                ];
+            }
+            
+            return $mapped;
+            
+        } catch (Throwable $e) {
+            error_log("Error getting submenu nodes: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get menu node by code (main menu or submenu)
+     */
+    public function getMenuNodeByCode($code, $userId = null, $userBalance = null) {
+        if (!$this->pdo) {
+            return null;
+        }
+        
+        try {
+            // First check main menu nodes
+            $stmt = $this->pdo->prepare("SELECT id, code, label, menu_number, action_type, action_value, requires_auth, min_balance, is_active, display_order
+                                        FROM menu_nodes WHERE code = ? AND is_active = 1");
+            $stmt->execute([$code]);
+            $mainNode = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($mainNode) {
+                // Check balance requirement
+                if ($userBalance !== null && (float)$mainNode['min_balance'] > (float)$userBalance) {
+                    return null;
+                }
+                
+                return [
+                    'id' => (int)$mainNode['id'],
+                    'code' => $mainNode['code'],
+                    'name' => $mainNode['label'],
+                    'display_text' => $mainNode['label'],
+                    'menu_number' => (string)$mainNode['menu_number'],
+                    'action_type' => $mainNode['action_type'],
+                    'action_value' => $mainNode['action_value'],
+                    'display_order' => (int)$mainNode['display_order'],
+                    'requires_auth' => (bool)$mainNode['requires_auth'],
+                    'min_balance' => (float)$mainNode['min_balance'],
+                    'is_active' => (bool)$mainNode['is_active'],
+                    'node_type' => 'main'
+                ];
+            }
+            
+            // Check submenu nodes
+            $stmt = $this->pdo->prepare("SELECT id, code, label, menu_number, action_type, action_value, is_active, display_order, metadata
+                                        FROM menu_subnodes WHERE code = ? AND is_active = 1");
+            $stmt->execute([$code]);
+            $subNode = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($subNode) {
+                return [
+                    'id' => (int)$subNode['id'],
+                    'code' => $subNode['code'],
+                    'name' => $subNode['label'],
+                    'display_text' => $subNode['label'],
+                    'menu_number' => (string)$subNode['menu_number'],
+                    'action_type' => $subNode['action_type'],
+                    'action_value' => $subNode['action_value'],
+                    'display_order' => (int)$subNode['display_order'],
+                    'is_active' => (bool)$subNode['is_active'],
+                    'metadata' => $subNode['metadata'] ? json_decode($subNode['metadata'], true) : null,
+                    'node_type' => 'submenu'
+                ];
+            }
+            
+            return null;
+            
+        } catch (Throwable $e) {
+            error_log("Error getting menu node by code: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Build submenu display text
+     */
+    public function buildSubmenuDisplay($submenuItems, $parentMenuName = '') {
+        $display = "";
+        if (!empty($parentMenuName)) {
+            $display .= "{$parentMenuName}:\n";
+        }
+        
+        if (empty($submenuItems)) {
+            $display .= "No options available.\n";
+        } else {
+            foreach ($submenuItems as $item) {
+                $display .= "{$item['menu_number']}. {$item['display_text']}\n";
+            }
+        }
+        
+        $display .= "#. Back\n";
+        return $display;
+    }
+
+    /**
+     * Get complete menu hierarchy for a user
+     */
+    public function getMenuHierarchy($userId = null, $userBalance = null) {
+        $mainMenu = $this->getMainMenu($userId, $userBalance);
+        $hierarchy = [];
+        
+        foreach ($mainMenu as $mainItem) {
+            $mainItemCode = $this->getMenuCodeFromActionValue($mainItem['action_value']);
+            if ($mainItemCode) {
+                $submenus = $this->getSubmenuNodes($mainItemCode, $userId, $userBalance);
+                $hierarchy[] = [
+                    'main_menu' => $mainItem,
+                    'submenus' => $submenus ?: []
+                ];
+            } else {
+                $hierarchy[] = [
+                    'main_menu' => $mainItem,
+                    'submenus' => []
+                ];
+            }
+        }
+        
+        return $hierarchy;
+    }
+
+    /**
+     * Helper method to extract menu code from action value
+     */
+    private function getMenuCodeFromActionValue($actionValue) {
+        $codeMap = [
+            'send_money' => 'send_money',
+            'buy_airtime_data' => 'buy_airtime_data',
+            'investment' => 'investment',
+            'utility_payment' => 'utility_payment'
+        ];
+        
+        return $codeMap[$actionValue] ?? null;
+    }
+
+    private function getMenuNodesFromDb($userId = null, $userBalance = null) {
+        if (!$this->pdo) {
+            return null;
+        }
+        try {
+            // Ensure table exists
+            $stmt = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_nodes'");
+            if ($stmt->fetchColumn() != 1) {
+                return null;
+            }
+            // Get root id
+            $rootStmt = $this->pdo->prepare("SELECT id FROM menu_nodes WHERE code = 'root'");
+            $rootStmt->execute();
+            $rootId = $rootStmt->fetchColumn();
+            if (!$rootId) {
+                return null;
+            }
+            // Fetch active children of root ordered
+            $sql = "SELECT id, label, menu_number, action_type, action_value, requires_auth, min_balance, is_active, display_order
+                    FROM menu_nodes WHERE parent_id = ? AND is_active = 1 ORDER BY display_order ASC";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$rootId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!$rows) {
+                return [];
+            }
+            // Apply simple balance gating if provided
+            if ($userBalance !== null) {
+                $rows = array_values(array_filter($rows, function($row) use ($userBalance) {
+                    return (float)$row['min_balance'] <= (float)$userBalance;
+                }));
+            }
+            // Map to same shape as old API
+            $mapped = [];
+            foreach ($rows as $index => $row) {
+                $mapped[] = [
+                    'id' => (int)$row['id'],
+                    'name' => $row['label'],
+                    'display_text' => $row['label'],
+                    'menu_number' => (string)$row['menu_number'],
+                    'action_type' => $row['action_type'],
+                    'action_value' => $row['action_value'],
+                    'display_order' => (int)$row['display_order'],
+                    'requires_auth' => (bool)$row['requires_auth'],
+                    'min_balance' => (float)$row['min_balance'],
+                    'user_type' => 'all',
+                    'is_active' => (bool)$row['is_active']
+                ];
+            }
+            return $mapped;
+        } catch (
+            Throwable $e
+        ) {
+            return null;
+        }
     }
     
-    /**
-     * Build menu display text
-     */
+    /** Build menu display text */
     public function buildMenuDisplay($menuItems) {
         $display = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n";
-        
         if (empty($menuItems)) {
             $display .= "No menu items available.\n";
         } else {
@@ -114,15 +361,12 @@ class MenuManager {
                 $display .= "{$item['menu_number']}. {$item['display_text']}\n";
             }
         }
-        
         return $display;
     }
     
-    /**
-     * Get menu item by number
-     */
-    public function getMenuItemByNumber($menuNumber) {
-        $menuItems = $this->getMainMenu();
+    /** Get menu item by number */
+    public function getMenuItemByNumber($menuNumber, $userId = null, $userBalance = null) {
+        $menuItems = $this->getMainMenu($userId, $userBalance);
         foreach ($menuItems as $item) {
             if ($item['menu_number'] == $menuNumber && $item['is_active']) {
                 return $item;
@@ -130,16 +374,79 @@ class MenuManager {
         }
         return null;
     }
-    
-    /**
-     * Log menu usage for analytics
-     */
-    public function logMenuUsage($menuItemId, $userId = null, $sessionId = null) {
-        // Simple logging without database - just return true
-        return true;
+
+    /** Get menu item by number with automatic reordering support */
+    public function getMenuItemByNumberRobust($menuNumber, $userId = null, $userBalance = null) {
+        if (!$this->pdo) {
+            return $this->getMenuItemByNumber($menuNumber, $userId, $userBalance);
+        }
+        
+        try {
+            // Ensure table exists
+            $stmt = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_nodes'");
+            if ($stmt->fetchColumn() != 1) {
+                return $this->getMenuItemByNumber($menuNumber, $userId, $userBalance);
+            }
+            
+            // Get root id
+            $rootStmt = $this->pdo->prepare("SELECT id FROM menu_nodes WHERE code = 'root'");
+            $rootStmt->execute();
+            $rootId = $rootStmt->fetchColumn();
+            if (!$rootId) {
+                return $this->getMenuItemByNumber($menuNumber, $userId, $userBalance);
+            }
+            
+            // Find menu item by number, respecting display order
+            $sql = "SELECT id, label, menu_number, action_type, action_value, requires_auth, min_balance, is_active, display_order
+                    FROM menu_nodes 
+                    WHERE parent_id = ? AND menu_number = ? AND is_active = 1 
+                    ORDER BY display_order ASC";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$rootId, $menuNumber]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($row) {
+                // Check balance requirement
+                if ($userBalance !== null && (float)$row['min_balance'] > (float)$userBalance) {
+                    return null;
+                }
+                
+                return [
+                    'id' => (int)$row['id'],
+                    'name' => $row['label'],
+                    'display_text' => $row['label'],
+                    'menu_number' => (string)$row['menu_number'],
+                    'action_type' => $row['action_type'],
+                    'action_value' => $row['action_value'],
+                    'display_order' => (int)$row['display_order'],
+                    'requires_auth' => (bool)$row['requires_auth'],
+                    'min_balance' => (float)$row['min_balance'],
+                    'user_type' => 'all',
+                    'is_active' => (bool)$row['is_active']
+                ];
+            }
+            
+            return null;
+            
+        } catch (Throwable $e) {
+            error_log("Error in getMenuItemByNumberRobust: " . $e->getMessage());
+            return $this->getMenuItemByNumber($menuNumber, $userId, $userBalance);
+        }
     }
     
-    // Database-dependent functions removed for simplicity
-    // The menu system now works with hardcoded menu items
+    /** Get submenu item by number */
+    public function getSubmenuItemByNumber($menuNumber, $submenuItems) {
+        foreach ($submenuItems as $item) {
+            if ($item['menu_number'] == $menuNumber && $item['is_active']) {
+                return $item;
+            }
+        }
+        return null;
+    }
+    
+    /** Log menu usage (no-op for now) */
+    public function logMenuUsage($menuItemId, $userId = null, $sessionId = null) {
+        return true;
+    }
 }
 ?>

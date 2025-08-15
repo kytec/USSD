@@ -1,8 +1,15 @@
 <?php
+require_once 'db_connect.php';
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 session_start();
+ 
+// Always include and initialize menu manager and user info
+require_once 'menu_manager.php';
+$menuManager = new MenuManager($pdo); // Use DB-backed menu manager
+$userBalance = 900.00; // Default balance for demo
+$userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
  
 if (!isset($_SESSION['ussd_state'])) {
     $_SESSION['ussd_state'] = 'start';
@@ -29,11 +36,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'cancel') {
     $_SESSION['user_id'] = 1; // This should be set based on actual user authentication
     
     // Set the welcome message using simple menu
-    require_once 'menu_manager.php';
-    $menuManager = new MenuManager(null); // No database needed
-    $userBalance = 900.00; // Default balance for demo
-    $userId = $_SESSION['user_id'];
-    
     $menuItems = $menuManager->getMainMenu($userId, $userBalance);
     $_SESSION['display'] = $menuManager->buildMenuDisplay($menuItems);
     
@@ -50,56 +52,42 @@ $correctPin = '1234';
 if ($input === '' && (!isset($_POST['action']) || $_POST['action'] !== 'cancel')) {
     $_SESSION['display'] = "Please enter a choice before pressing Send.";
     header('Location: index.php');
-    exit();
+    exit;
 }
  
 switch ($_SESSION['ussd_state']) {
  
     case 'start':
-        // Use simple menu system
-        require_once 'menu_manager.php';
-        $menuManager = new MenuManager(null); // No database needed
-        $userBalance = 900.00; // Default balance for demo
-        $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
-        
-        $menuItem = $menuManager->getMenuItemByNumber($input);
+        $menuItem = $menuManager->getMenuItemByNumberRobust($input, $userId, $userBalance);
         
         if ($menuItem) {
             // Log menu usage
             $menuManager->logMenuUsage($menuItem['id'], $userId, session_id());
             
-            // Handle menu action based on action_type and action_value
-            switch ($menuItem['action_value']) {
-                case 'send_money':
-                    $_SESSION['ussd_state'] = 'select_network';
-                    $_SESSION['display'] = "Select Network:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
-                    header('Location: index.php');
-                    exit;
-                case 'buy_airtime_data':
-                    $_SESSION['ussd_state'] = 'buy_airtime_data';
-                    unset($_SESSION['ussd_data']['service_step']);
-                    $_SESSION['display'] = "Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back";
-                    header('Location: index.php');
-                    exit;
-                case 'investment':
-                    $_SESSION['ussd_state'] = 'investment';
-                    $_SESSION['display'] = "Investment Options:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back\n\nSelect an option:";
-                    header('Location: index.php');
-                    exit;
-                case 'utility_payment':
-                    $_SESSION['ussd_state'] = 'utility_payment';
-                    $_SESSION['display'] = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n#. Back";
-                    header('Location: index.php');
-                    exit;
-                case 'statement':
-                    $_SESSION['ussd_state'] = 'view_statement';
-                    // The statement logic is already handled in view_statement
-                    break;
-                default:
-                    // Handle external actions or custom functions
-                    $_SESSION['display'] = "Processing {$menuItem['display_text']}...\n\n1. Back to main menu";
-                    header('Location: index.php');
-                    exit;
+            // Check if this menu has submenus
+            $submenus = $menuManager->getSubmenuNodes($menuItem['action_value'], $userId, $userBalance);
+            
+            if ($submenus && count($submenus) > 0) {
+                // Store submenu data and show submenu
+                $_SESSION['current_submenus'] = $submenus;
+                $_SESSION['current_main_menu'] = $menuItem;
+                $_SESSION['ussd_state'] = 'submenu_selection';
+                $_SESSION['display'] = $menuManager->buildSubmenuDisplay($submenus, $menuItem['display_text']);
+                header('Location: index.php');
+                exit;
+            } else {
+                // No submenus, handle directly based on action_type and action_value
+                switch ($menuItem['action_value']) {
+                    case 'statement':
+                        $_SESSION['ussd_state'] = 'view_statement';
+                        // The statement logic is already handled in view_statement
+                        break;
+                    default:
+                        // Handle external actions or custom functions
+                        $_SESSION['display'] = "Processing {$menuItem['display_text']}...\n\n1. Back to main menu";
+                        header('Location: index.php');
+                        exit;
+                }
             }
         } else {
             // Invalid menu selection - show main menu
@@ -109,9 +97,144 @@ switch ($_SESSION['ussd_state']) {
             exit;
         }
         break;
- 
 
- 
+    case 'submenu_selection':
+        if ($input == '#') {
+            // Back to main menu
+            $_SESSION['ussd_state'] = 'start';
+            $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+            $_SESSION['display'] = $menuManager->buildMenuDisplay($menuItems);
+            header('Location: index.php');
+            exit;
+        } else {
+            // Find selected submenu item using helper method
+            $selectedSubmenu = $menuManager->getSubmenuItemByNumber($input, $_SESSION['current_submenus']);
+            
+            if ($selectedSubmenu) {
+                // Log submenu usage
+                $menuManager->logMenuUsage($selectedSubmenu['id'], $userId, session_id());
+                
+                // Handle submenu action based on action_type and action_value
+                switch ($selectedSubmenu['action_type']) {
+                    case 'state':
+                        // Navigate to specific USSD state
+                        $_SESSION['ussd_state'] = $selectedSubmenu['action_value'];
+                        
+                        // Use metadata if available for custom display
+                        if ($selectedSubmenu['metadata'] && isset($selectedSubmenu['metadata']['next_display'])) {
+                            $_SESSION['display'] = $selectedSubmenu['metadata']['next_display'];
+                        } else {
+                            // Default display based on action_value
+                            switch ($selectedSubmenu['action_value']) {
+                                case 'enter_recipient':
+                                    $network = $selectedSubmenu['metadata']['network'] ?? 'Mobile Money';
+                                    $_SESSION['display'] = "Enter {$network} number:\n#. Back";
+                                    break;
+                                case 'select_bank':
+                                    $_SESSION['display'] = "Select Bank:\n1. GCB\n2. Ecobank\n3. GTBank\n4. Prudential Bank\n5. UBA\n#. Back";
+                                    break;
+                                case 'buy_airtime_data':
+                                    $_SESSION['display'] = "Buy Airtime/Data:\n1. Buy Airtime\n2. Buy Data\n#. Back";
+                                    break;
+                                case 'fixed_deposit':
+                                    $_SESSION['display'] = "Fixed Deposit Options:\n1. 3 Months (5% p.a.)\n2. 6 Months (7% p.a.)\n3. 12 Months (10% p.a.)\n#. Back\n\nSelect duration:";
+                                    break;
+                                case 'treasury_bills':
+                                    $_SESSION['display'] = "Enter amount to invest in Treasury Bills:\n#. Back";
+                                    break;
+                                case 'mutual_funds':
+                                    $_SESSION['display'] = "Enter amount to invest in Mutual Funds:\n#. Back";
+                                    break;
+                                case 'select_ecg_meter_type':
+                                    $_SESSION['display'] = "Select ECG Meter Type:\n1. Prepaid\n2. Postpaid\n#. Back";
+                                    break;
+                                case 'enter_utility_account':
+                                    $utilityType = $selectedSubmenu['metadata']['utility_type'] ?? 'Utility';
+                                    $_SESSION['display'] = "Enter your {$utilityType} account number:\n#. Back";
+                                    break;
+                                default:
+                                    $_SESSION['display'] = "Processing {$selectedSubmenu['display_text']}...\n\n1. Back to main menu";
+                                    break;
+                            }
+                        }
+                        
+                        // Store submenu data for context
+                        $_SESSION['ussd_data']['selected_submenu'] = $selectedSubmenu;
+                        $_SESSION['ussd_data']['parent_menu'] = $_SESSION['current_main_menu'];
+                        
+                        header('Location: index.php');
+                        exit;
+                        
+                    case 'function':
+                        // Call specific function
+                        $_SESSION['ussd_state'] = 'function_call';
+                        $_SESSION['ussd_data']['function_name'] = $selectedSubmenu['action_value'];
+                        $_SESSION['ussd_data']['selected_submenu'] = $selectedSubmenu;
+                        $_SESSION['display'] = "Processing {$selectedSubmenu['display_text']}...\n\n1. Back to main menu";
+                        header('Location: index.php');
+                        exit;
+                        
+                    case 'external':
+                        // Handle external actions
+                        $_SESSION['ussd_state'] = 'external_action';
+                        $_SESSION['ussd_data']['external_url'] = $selectedSubmenu['action_value'];
+                        $_SESSION['ussd_data']['selected_submenu'] = $selectedSubmenu;
+                        $_SESSION['display'] = "Redirecting to {$selectedSubmenu['display_text']}...\n\n1. Back to main menu";
+                        header('Location: index.php');
+                        exit;
+                        
+                    default:
+                        $_SESSION['display'] = "Processing {$selectedSubmenu['display_text']}...\n\n1. Back to main menu";
+                        header('Location: index.php');
+                        exit;
+                }
+            } else {
+                // Invalid submenu selection
+                $_SESSION['display'] = "Invalid option. Please select:\n" . $menuManager->buildSubmenuDisplay($_SESSION['current_submenus'], $_SESSION['current_main_menu']['display_text']);
+                header('Location: index.php');
+                exit;
+            }
+        }
+        break;
+
+    case 'function_call':
+        if ($input == '#') {
+            // Back to submenu
+            $_SESSION['ussd_state'] = 'submenu_selection';
+            $_SESSION['display'] = $menuManager->buildSubmenuDisplay($_SESSION['current_submenus'], $_SESSION['current_main_menu']['display_text']);
+            header('Location: index.php');
+            exit;
+        } else {
+            // Handle function call based on stored function name
+            $functionName = $_SESSION['ussd_data']['function_name'];
+            $selectedSubmenu = $_SESSION['ussd_data']['selected_submenu'];
+            
+            // You can add specific function handling here
+            $_SESSION['display'] = "Function '{$functionName}' executed successfully!\n\n1. Back to main menu";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+
+    case 'external_action':
+        if ($input == '#') {
+            // Back to submenu
+            $_SESSION['ussd_state'] = 'submenu_selection';
+            $_SESSION['display'] = $menuManager->buildSubmenuDisplay($_SESSION['current_submenus'], $_SESSION['current_main_menu']['display_text']);
+            header('Location: index.php');
+            exit;
+        } else {
+            // Handle external action
+            $externalUrl = $_SESSION['ussd_data']['external_url'];
+            $selectedSubmenu = $_SESSION['ussd_data']['selected_submenu'];
+            
+            // You can add external API calls here
+            $_SESSION['display'] = "External action '{$selectedSubmenu['display_text']}' completed!\n\n1. Back to main menu";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+
     case 'select_network':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'start';
@@ -229,7 +352,7 @@ switch ($_SESSION['ussd_state']) {
             header('Location: index.php');
             exit;
         } else if ($input == '1') {
-            $_SESSION['ussd_state'] = 'enter_bank_amount';
+            $_SESSION['ussd_state'] = 'enter_bank_amount_alt';
             $_SESSION['display'] = "Enter amount to send to bank account:\n#. Back";
             header('Location: index.php');
             exit;
@@ -240,7 +363,7 @@ switch ($_SESSION['ussd_state']) {
         }
         break;
  
-    case 'enter_bank_amount':
+    case 'enter_bank_amount_alt':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'confirm_bank_recipient';
             $_SESSION['display'] = "Send to: {$_SESSION['ussd_data']['bank_account_name']}\nAccount: {$_SESSION['ussd_data']['bank_account']}\nBank: {$_SESSION['ussd_data']['bank_name']}\n1. Confirm\n#. Back";
@@ -261,7 +384,7 @@ switch ($_SESSION['ussd_state']) {
 
     case 'enter_bank_pin':
         if ($input == '#') {
-            $_SESSION['ussd_state'] = 'enter_bank_amount';
+            $_SESSION['ussd_state'] = 'enter_bank_amount_alt';
             $_SESSION['display'] = "Enter amount to send to bank account:\n#. Back";
             header('Location: index.php');
             exit;
@@ -704,12 +827,11 @@ switch ($_SESSION['ussd_state']) {
             try {
                 $pdo->beginTransaction();
 
-                // Deduct amount from user's balance
                 $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
                 $stmt->execute([$_SESSION['ussd_data']['amount'], $_SESSION['user_id']]);
 
-                // Record meter transaction
-                $stmt = $pdo->prepare("INSERT INTO meter_transactions (user_id, meter_number, meter_type, amount, transaction_date) VALUES (?, ?, ?, ?, GETDATE())");
+                // Record meter transaction with completed status
+                $stmt = $pdo->prepare("INSERT INTO meter_transactions (user_id, meter_number, meter_type, amount, status, transaction_date) VALUES (?, ?, ?, ?, 'completed', GETDATE())");
                 $stmt->execute([
                     $_SESSION['user_id'],
                     $_SESSION['ussd_data']['meter_number'],
@@ -743,7 +865,7 @@ switch ($_SESSION['ussd_state']) {
                 exit;
             }
         }
-        
+        break;
 
     case 'transaction_success':
         if ($input == '1') {
@@ -764,18 +886,14 @@ switch ($_SESSION['ussd_state']) {
                 case '1':
                     $_SESSION['ussd_state'] = 'fixed_deposit';
                     $_SESSION['display'] = "Fixed Deposit Options:\n1. 3 Months (5% p.a.)\n2. 6 Months (7% p.a.)\n3. 12 Months (10% p.a.)\n#. Back\n\nSelect duration:"; header('Location: index.php'); exit;
-                    break;
                 case '2':
                     $_SESSION['ussd_state'] = 'treasury_bills';
                     $_SESSION['display'] = "Enter amount to invest in Treasury Bills:\n#. Back"; header('Location: index.php'); exit;
-                    break;
                 case '3':
                     $_SESSION['ussd_state'] = 'mutual_funds';
                     $_SESSION['display'] = "Enter amount to invest in Mutual Funds:\n#. Back"; header('Location: index.php'); exit;
-                    break;
                 default:
                     $_SESSION['display'] = "Invalid option. Please select:\n1. Fixed Deposit\n2. Treasury Bills\n3. Mutual Funds\n#. Back\n\nSelect an option:"; header('Location: index.php'); exit;
-                    break;
             }
         }
         break;
@@ -1063,45 +1181,45 @@ switch ($_SESSION['ussd_state']) {
     case 'view_statement':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'start';
-            $_SESSION['display'] = "Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Investment\n4. Utility Payment\n5. Statement"; header('Location: index.php'); exit;
+            $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+            $_SESSION['display'] = $menuManager->buildMenuDisplay($menuItems);
+            header('Location: index.php');
+            exit;
         } else {
             try {
                 $transactions = [];
-                // Get Send Money transactions
                 try {
                     $stmt = $pdo->prepare("SELECT 'Send Money' as type, recipient_phone as details, amount, transaction_date FROM transactions WHERE sender_id = ? AND status = 'completed' ORDER BY transaction_date DESC");
                     $stmt->execute([$_SESSION['user_id']]);
                     $sendMoney = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $transactions = array_merge($transactions, $sendMoney);
                 } catch (Exception $e) {}
-                // Get Airtime purchases
                 try {
                     $stmt = $pdo->prepare("SELECT 'Airtime Purchase' as type, phone_number as details, amount, purchase_date as transaction_date FROM airtime_purchases WHERE user_id = ? ORDER BY purchase_date DESC");
                     $stmt->execute([$_SESSION['user_id']]);
                     $airtime = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $transactions = array_merge($transactions, $airtime);
                 } catch (Exception $e) {}
-                // Get Data purchases
                 try {
                     $stmt = $pdo->prepare("SELECT 'Data Purchase' as type, phone_number as details, amount, purchase_date as transaction_date FROM data_purchases WHERE user_id = ? ORDER BY purchase_date DESC");
                     $stmt->execute([$_SESSION['user_id']]);
                     $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $transactions = array_merge($transactions, $data);
                 } catch (Exception $e) {}
-                // Get Utility payments
                 try {
                     $stmt = $pdo->prepare("SELECT 'Utility Payment' as type, account_number as details, amount, payment_date as transaction_date FROM utility_payments WHERE user_id = ? ORDER BY payment_date DESC");
                     $stmt->execute([$_SESSION['user_id']]);
                     $utility = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $transactions = array_merge($transactions, $utility);
                 } catch (Exception $e) {}
-                // Sort all transactions by date and get top 2
+
                 if (count($transactions) > 0) {
                     usort($transactions, function($a, $b) {
                         return strtotime($b['transaction_date']) - strtotime($a['transaction_date']);
                     });
                     $transactions = array_slice($transactions, 0, 2);
-                    $_SESSION['display'] = "Last 2 Transactions:\n\n"; header('Location: index.php'); exit;
+
+                    $response = "Last 2 Transactions:\n\n";
                     $counter = 1;
                     foreach ($transactions as $transaction) {
                         $date = date('d/m/Y H:i', strtotime($transaction['transaction_date']));
@@ -1115,11 +1233,16 @@ switch ($_SESSION['ussd_state']) {
                         $counter++;
                     }
                     $response .= "\n#. Back";
+                    $_SESSION['display'] = $response;
                 } else {
-                    $_SESSION['display'] = "No transactions found.\n\n#. Back"; header('Location: index.php'); exit;
+                    $_SESSION['display'] = "No transactions found.\n\n#. Back";
                 }
+                header('Location: index.php');
+                exit;
             } catch (PDOException $e) {
-                $_SESSION['display'] = "Error retrieving transactions. Please try again later.\n\n#. Back"; header('Location: index.php'); exit;
+                $_SESSION['display'] = "Error retrieving transactions. Please try again later.\n\n#. Back";
+                header('Location: index.php');
+                exit;
             }
         }
         break;
@@ -1181,7 +1304,7 @@ switch ($_SESSION['ussd_state']) {
             }
         }
         break;
-    case 'enter_meter_amount':
+    case 'enter_ecg_meter_amount':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'enter_meter_number';
             $_SESSION['display'] = "Enter meter number:\n#. Back"; header('Location: index.php'); exit;
@@ -1354,14 +1477,14 @@ switch ($_SESSION['ussd_state']) {
             $_SESSION['display'] = "Select Network:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back"; header('Location: index.php'); exit;
         } else if (preg_match('/^[0-9]{10,20}$/', $input)) {
             $_SESSION['ussd_data']['bank_account'] = $input;
-            $_SESSION['ussd_state'] = 'enter_bank_amount';
+            $_SESSION['ussd_state'] = 'enter_bank_amount_alt';
             $_SESSION['display'] = "Enter amount to send to bank account:\n#. Back"; header('Location: index.php'); exit;
         } else {
             $_SESSION['display'] = "Invalid bank account number. Please enter a valid account number (10-20 digits):\n#. Back"; header('Location: index.php'); exit;
         }
         break;
 
-    case 'enter_bank_amount':
+    case 'enter_bank_amount_alt':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'enter_bank_account';
             $_SESSION['display'] = "Enter Bank Account Number:\n#. Back"; header('Location: index.php'); exit;
@@ -1376,7 +1499,7 @@ switch ($_SESSION['ussd_state']) {
 
     case 'confirm_bank_transfer':
         if ($input == '#') {
-            $_SESSION['ussd_state'] = 'enter_bank_amount';
+            $_SESSION['ussd_state'] = 'enter_bank_amount_alt';
             $_SESSION['display'] = "Enter amount to send to bank account:\n#. Back"; header('Location: index.php'); exit;
         } else if ($input == '1') {
             $_SESSION['ussd_state'] = 'transaction_success';
@@ -1385,6 +1508,156 @@ switch ($_SESSION['ussd_state']) {
             exit;
         } else {
             $_SESSION['display'] = "Invalid option. Please select:\n1. Confirm\n#. Back"; header('Location: index.php'); exit;
+        }
+        break;
+ 
+    case 'enter_recipient_number':
+        if ($input == '#') {
+            // Go back to previous menu
+        } else {
+            $_SESSION['ussd_data']['recipient_number'] = $input;
+            $_SESSION['ussd_state'] = 'enter_amount';
+            $_SESSION['display'] = "Enter amount to send:\n#. Back";
+            header('Location: index.php');
+            exit();
+        }
+        break;
+ 
+    case 'enter_recipient':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'select_network';
+            $_SESSION['display'] = "Select Network:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else {
+            // Optionally, add phone number validation here
+            $_SESSION['ussd_data']['recipient_number'] = $input;
+            $_SESSION['ussd_state'] = 'enter_amount';
+            $_SESSION['display'] = "Enter amount to send:\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+ 
+    case 'enter_amount':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_recipient';
+            $network = $_SESSION['ussd_data']['network'];
+            $_SESSION['display'] = "Enter {$network} number:\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else if (is_numeric($input) && $input > 0) {
+            try {
+                // Check if user has sufficient balance
+                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
+                $stmt->execute([$_SESSION['user_id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($user && $user['balance'] >= $input) {
+                    $_SESSION['ussd_data']['amount'] = $input;
+                    $_SESSION['ussd_state'] = 'enter_reference';
+                    $_SESSION['display'] = "Enter reference for this transfer:\n#. Back";
+                    header('Location: index.php');
+                    exit;
+                } else {
+                    $_SESSION['display'] = "Insufficient balance. Your balance is GHS " . number_format($user['balance'], 2) . ".\nPlease enter a valid amount:\n#. Back";
+                    header('Location: index.php');
+                    exit;
+                }
+            } catch (PDOException $e) {
+                $_SESSION['display'] = "Error checking balance. Please try again:\nEnter amount to send:\n#. Back";
+                header('Location: index.php');
+                exit;
+            }
+        } else {
+            $_SESSION['display'] = "Invalid amount. Please enter a valid amount:\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+
+    case 'enter_reference':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_amount';
+            $_SESSION['display'] = "Enter amount to send:\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['ussd_data']['reference'] = $input;
+            $_SESSION['ussd_state'] = 'confirm_transfer';
+            $network = $_SESSION['ussd_data']['network'];
+            $recipient = $_SESSION['ussd_data']['recipient_number'];
+            $amount = $_SESSION['ussd_data']['amount'];
+            $reference = $_SESSION['ussd_data']['reference'];
+            $_SESSION['display'] = "Confirm Transfer:\nTo: {$recipient}\nNetwork: {$network}\nAmount: GHS " . number_format($amount, 2) . "\nReference: {$reference}\n\n1. Confirm\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+
+    case 'confirm_transfer':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_reference';
+            $_SESSION['display'] = "Enter reference for this transfer:\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else if ($input == '1') {
+            $_SESSION['ussd_state'] = 'enter_pin';
+            $_SESSION['display'] = "Enter your PIN to confirm transfer:\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['display'] = "Invalid option. Please select:\n1. Confirm\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+
+    case 'enter_pin':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'confirm_transfer';
+            $network = $_SESSION['ussd_data']['network'];
+            $recipient = $_SESSION['ussd_data']['recipient_number'];
+            $amount = $_SESSION['ussd_data']['amount'];
+            $reference = $_SESSION['ussd_data']['reference'];
+            $_SESSION['display'] = "Confirm Transfer:\nTo: {$recipient}\nNetwork: {$network}\nAmount: GHS " . number_format($amount, 2) . "\nReference: {$reference}\n\n1. Confirm\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else if ($input == $correctPin) {
+            try {
+                $pdo->beginTransaction();
+                $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
+                $stmt->execute([$_SESSION['ussd_data']['amount'], $_SESSION['user_id']]);
+                $stmt = $pdo->prepare("UPDATE users SET balance = balance + ? WHERE phone = ?");
+                $stmt->execute([$_SESSION['ussd_data']['amount'], $_SESSION['ussd_data']['recipient_number']]);
+                // Insert transfer with completed status
+                $stmt = $pdo->prepare("INSERT INTO transactions (sender_id, recipient_phone, amount, reference, status, transaction_date) VALUES (?, ?, ?, ?, 'completed', GETDATE())");
+                $stmt->execute([
+                    $_SESSION['user_id'],
+                    $_SESSION['ussd_data']['recipient_number'],
+                    $_SESSION['ussd_data']['amount'],
+                    $_SESSION['ussd_data']['reference']
+                ]);
+                $pdo->commit();
+                $_SESSION['ussd_state'] = 'transaction_success';
+                $network = $_SESSION['ussd_data']['network'];
+                $recipient = $_SESSION['ussd_data']['recipient_number'];
+                $amount = $_SESSION['ussd_data']['amount'];
+                $reference = $_SESSION['ussd_data']['reference'];
+                $_SESSION['display'] = "Transfer successful!\nTo: {$recipient}\nNetwork: {$network}\nAmount: GHS " . number_format($amount, 2) . "\nReference: {$reference}\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            } catch(PDOException $e) {
+                $pdo->rollBack();
+                $_SESSION['display'] = "Transaction failed. Please try again later.";
+                header('Location: index.php');
+                exit;
+            }
+        } else {
+            $_SESSION['ussd_state'] = 'start';
+            $_SESSION['display'] = "Wrong PIN provided. Returning to main menu.\n\n1. Back to main menu";
+            header('Location: index.php');
+            exit;
         }
         break;
  
@@ -1435,4 +1708,11 @@ function callNetworkProviderAPI($data) {
         ];
     }
 }
+
+$stmt = $pdo->prepare("INSERT INTO menu_usage_logs (user_id, menu_item_id, session_id, accessed_at, ip_address, user_agent) VALUES (?, ?, ?, GETDATE(), ?, ?)");
+$stmt->execute([1, 1, session_id(), '127.0.0.1', 'TestAgent']);
+echo "Inserted!";
+
+date_default_timezone_set('Africa/Accra'); // or your timezone
+$now = date('Y-m-d H:i:s');
 ?>
