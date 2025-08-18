@@ -14,6 +14,12 @@ class MenuManager {
      * Get main menu items for a user (from DB if available, else fallback)
      */
     public function getMainMenu($userId = null, $userBalance = null) {
+        // Prefer flat menu_items table updates if present (admin uses this)
+        $legacyItems = $this->getMenuItemsFromDb($userId, $userBalance);
+        if ($legacyItems !== null && count($legacyItems) > 0) {
+            return $legacyItems;
+        }
+        // Fall back to hierarchical nodes if configured
         $dbItems = $this->getMenuNodesFromDb($userId, $userBalance);
         if ($dbItems !== null && count($dbItems) > 0) {
             return $dbItems;
@@ -99,6 +105,91 @@ class MenuManager {
     }
 
     /**
+     * Fallback to legacy menu_items table if menu_nodes is not set up
+     */
+    private function getMenuItemsFromDb($userId = null, $userBalance = null) {
+        if (!$this->pdo) {
+            return null;
+        }
+        try {
+            // Check tables exist
+            $stmt = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_items'");
+            if ($stmt->fetchColumn() != 1) {
+                return null;
+            }
+            // Determine main category id if table exists
+            $mainCategoryId = 1;
+            try {
+                $hasCategories = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_categories'");
+                if ($hasCategories && $hasCategories->fetchColumn() == 1) {
+                    $catStmt = $this->pdo->prepare("SELECT TOP 1 id FROM menu_categories WHERE name = 'Main Menu'");
+                    $catStmt->execute();
+                    $catId = $catStmt->fetchColumn();
+                    if ($catId) { $mainCategoryId = (int)$catId; }
+                }
+            } catch (Throwable $e) {
+                // ignore and default to 1
+            }
+            // Fetch active items ordered by numeric menu_number then display_order
+            $sql = "SELECT id, name, display_text, menu_number, action_type, action_value, display_order, is_active, requires_auth, min_balance, user_type, category_id
+                    FROM menu_items 
+                    WHERE (category_id = ? OR category_id IS NULL) AND is_active = 1
+                    ORDER BY CASE WHEN TRY_CONVERT(INT, menu_number) IS NULL THEN 2147483647 ELSE TRY_CONVERT(INT, menu_number) END ASC, display_order ASC";
+            $stmt = $this->pdo->prepare($sql);
+            // If category id is not sensible, pass null to not filter by category
+            $categoryFilter = $mainCategoryId > 0 ? $mainCategoryId : null;
+            $stmt->execute([$categoryFilter]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!$rows) {
+                return [];
+            }
+            // Filter to known top-level actions if too many rows (avoid including submenu-like rows)
+            $allowedActions = ['send_money','buy_airtime_data','investment','utility_payment','statement'];
+            $rows = array_values(array_filter($rows, function($row) use ($allowedActions) {
+                return in_array($row['action_value'], $allowedActions, true);
+            }));
+            // Optional balance filter
+            if ($userBalance !== null) {
+                $rows = array_values(array_filter($rows, function($row) use ($userBalance) {
+                    return (float)$row['min_balance'] <= (float)$userBalance;
+                }));
+            }
+            // Dedupe by action_value to avoid duplicates if multiple records exist
+            $deduped = [];
+            $seen = [];
+            foreach ($rows as $row) {
+                $key = $row['action_value'];
+                if (!isset($seen[$key])) {
+                    $deduped[] = $row;
+                    $seen[$key] = true;
+                }
+            }
+            // Limit to top 5 items (main menu)
+            $rows = array_slice($deduped, 0, 5);
+            // Map to common structure
+            $mapped = [];
+            foreach ($rows as $row) {
+                $mapped[] = [
+                    'id' => (int)$row['id'],
+                    'name' => $row['name'] ?? $row['display_text'],
+                    'display_text' => $row['display_text'],
+                    'menu_number' => (string)$row['menu_number'],
+                    'action_type' => $row['action_type'],
+                    'action_value' => $row['action_value'],
+                    'display_order' => (int)$row['display_order'],
+                    'requires_auth' => isset($row['requires_auth']) ? (bool)$row['requires_auth'] : false,
+                    'min_balance' => isset($row['min_balance']) ? (float)$row['min_balance'] : 0.0,
+                    'user_type' => $row['user_type'] ?? 'all',
+                    'is_active' => (bool)$row['is_active']
+                ];
+            }
+            return $mapped;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
      * Get submenu nodes for a specific parent menu
      */
     public function getSubmenuNodes($parentNodeCode, $userId = null, $userBalance = null) {
@@ -127,11 +218,11 @@ class MenuManager {
                 return null;
             }
             
-            // Fetch active submenu nodes ordered by display_order
+            // Fetch active submenu nodes ordered by numeric menu_number then display_order
             $sql = "SELECT id, code, label, menu_number, action_type, action_value, is_active, display_order, metadata
                     FROM menu_subnodes 
                     WHERE parent_node_id = ? AND is_active = 1 
-                    ORDER BY display_order ASC";
+                    ORDER BY CASE WHEN TRY_CONVERT(INT, menu_number) IS NULL THEN 2147483647 ELSE TRY_CONVERT(INT, menu_number) END ASC, display_order ASC";
             
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([$parentId]);
@@ -311,9 +402,10 @@ class MenuManager {
             if (!$rootId) {
                 return null;
             }
-            // Fetch active children of root ordered
+            // Fetch active children of root ordered by numeric menu_number then display_order
             $sql = "SELECT id, label, menu_number, action_type, action_value, requires_auth, min_balance, is_active, display_order
-                    FROM menu_nodes WHERE parent_id = ? AND is_active = 1 ORDER BY display_order ASC";
+                    FROM menu_nodes WHERE parent_id = ? AND is_active = 1 
+                    ORDER BY CASE WHEN TRY_CONVERT(INT, menu_number) IS NULL THEN 2147483647 ELSE TRY_CONVERT(INT, menu_number) END ASC, display_order ASC";
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([$rootId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -382,48 +474,69 @@ class MenuManager {
         }
         
         try {
-            // Ensure table exists
-            $stmt = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_nodes'");
-            if ($stmt->fetchColumn() != 1) {
-                return $this->getMenuItemByNumber($menuNumber, $userId, $userBalance);
-            }
-            
-            // Get root id
-            $rootStmt = $this->pdo->prepare("SELECT id FROM menu_nodes WHERE code = 'root'");
-            $rootStmt->execute();
-            $rootId = $rootStmt->fetchColumn();
-            if (!$rootId) {
-                return $this->getMenuItemByNumber($menuNumber, $userId, $userBalance);
-            }
-            
-            // Find menu item by number, respecting display order
-            $sql = "SELECT id, label, menu_number, action_type, action_value, requires_auth, min_balance, is_active, display_order
-                    FROM menu_nodes 
-                    WHERE parent_id = ? AND menu_number = ? AND is_active = 1 
-                    ORDER BY display_order ASC";
+            // 1) Prefer legacy menu_items by menu_number (admin changes live here)
+            $allowedActions = ['send_money','buy_airtime_data','investment','utility_payment','statement'];
+            $placeholders = implode(',', array_fill(0, count($allowedActions), '?'));
+            $sql = "SELECT TOP 1 id, name, display_text, menu_number, action_type, action_value, display_order, requires_auth, min_balance, is_active
+                    FROM menu_items
+                    WHERE is_active = 1 AND menu_number = ? AND action_value IN ($placeholders)
+                    ORDER BY display_order ASC, id ASC";
+            $params = array_merge([(string)$menuNumber], $allowedActions);
             $stmt = $this->pdo->prepare($sql);
-            $stmt->execute([$rootId, $menuNumber]);
+            $stmt->execute($params);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            
             if ($row) {
-                // Check balance requirement
-                if ($userBalance !== null && (float)$row['min_balance'] > (float)$userBalance) {
+                if ($userBalance !== null && isset($row['min_balance']) && (float)$row['min_balance'] > (float)$userBalance) {
                     return null;
                 }
-                
                 return [
                     'id' => (int)$row['id'],
-                    'name' => $row['label'],
-                    'display_text' => $row['label'],
+                    'name' => $row['name'] ?? $row['display_text'],
+                    'display_text' => $row['display_text'],
                     'menu_number' => (string)$row['menu_number'],
                     'action_type' => $row['action_type'],
                     'action_value' => $row['action_value'],
                     'display_order' => (int)$row['display_order'],
-                    'requires_auth' => (bool)$row['requires_auth'],
-                    'min_balance' => (float)$row['min_balance'],
+                    'requires_auth' => isset($row['requires_auth']) ? (bool)$row['requires_auth'] : false,
+                    'min_balance' => isset($row['min_balance']) ? (float)$row['min_balance'] : 0.0,
                     'user_type' => 'all',
                     'is_active' => (bool)$row['is_active']
                 ];
+            }
+            
+            // 2) Fallback to hierarchical menu_nodes by number if configured
+            $stmt = $this->pdo->query("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'menu_nodes'");
+            if ($stmt->fetchColumn() == 1) {
+                $rootStmt = $this->pdo->prepare("SELECT id FROM menu_nodes WHERE code = 'root'");
+                $rootStmt->execute();
+                $rootId = $rootStmt->fetchColumn();
+                if ($rootId) {
+                    $sql = "SELECT id, label, menu_number, action_type, action_value, requires_auth, min_balance, is_active, display_order
+                            FROM menu_nodes 
+                            WHERE parent_id = ? AND menu_number = ? AND is_active = 1 
+                            ORDER BY display_order ASC";
+                    $stmt = $this->pdo->prepare($sql);
+                    $stmt->execute([$rootId, $menuNumber]);
+                    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                    if ($row) {
+                        if ($userBalance !== null && (float)$row['min_balance'] > (float)$userBalance) {
+                            return null;
+                        }
+                        return [
+                            'id' => (int)$row['id'],
+                            'name' => $row['label'],
+                            'display_text' => $row['label'],
+                            'menu_number' => (string)$row['menu_number'],
+                            'action_type' => $row['action_type'],
+                            'action_value' => $row['action_value'],
+                            'display_order' => (int)$row['display_order'],
+                            'requires_auth' => (bool)$row['requires_auth'],
+                            'min_balance' => (float)$row['min_balance'],
+                            'user_type' => 'all',
+                            'is_active' => (bool)$row['is_active']
+                        ];
+                    }
+                }
             }
             
             return null;

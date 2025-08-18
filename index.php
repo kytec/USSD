@@ -60,10 +60,20 @@ session_start();
         <h2>USSD Simulator</h2>
         <div class="ussd-display" id="display">
             <?php
-            if (isset($_SESSION['display'])) {
+            // When on start state, always rebuild the main menu from DB to reflect latest changes
+            if (isset($_SESSION['ussd_state']) && $_SESSION['ussd_state'] === 'start') {
+                require_once 'db_connect.php';
+                require_once 'menu_manager.php';
+                $menuManager = new MenuManager($pdo);
+                $userBalance = 900.00; // Default balance for demo
+                $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+                $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+                $menuDisplay = $menuManager->buildMenuDisplay($menuItems);
+                echo htmlspecialchars($menuDisplay);
+            } elseif (isset($_SESSION['display'])) {
                 echo htmlspecialchars($_SESSION['display']);
             } else {
-                // DB-driven menu
+                // Initial load: build main menu from DB
                 require_once 'db_connect.php';
                 require_once 'menu_manager.php';
                 $menuManager = new MenuManager($pdo);

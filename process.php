@@ -73,20 +73,20 @@ switch ($_SESSION['ussd_state']) {
                 $_SESSION['current_main_menu'] = $menuItem;
                 $_SESSION['ussd_state'] = 'submenu_selection';
                 $_SESSION['display'] = $menuManager->buildSubmenuDisplay($submenus, $menuItem['display_text']);
-                header('Location: index.php');
-                exit;
+                    header('Location: index.php');
+                    exit;
             } else {
                 // No submenus, handle directly based on action_type and action_value
                 switch ($menuItem['action_value']) {
-                    case 'statement':
-                        $_SESSION['ussd_state'] = 'view_statement';
-                        // The statement logic is already handled in view_statement
-                        break;
-                    default:
-                        // Handle external actions or custom functions
-                        $_SESSION['display'] = "Processing {$menuItem['display_text']}...\n\n1. Back to main menu";
-                        header('Location: index.php');
-                        exit;
+                case 'statement':
+                    $_SESSION['ussd_state'] = 'view_statement';
+                    // The statement logic is already handled in view_statement
+                    break;
+                default:
+                    // Handle external actions or custom functions
+                    $_SESSION['display'] = "Processing {$menuItem['display_text']}...\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
                 }
             }
         } else {
@@ -97,7 +97,7 @@ switch ($_SESSION['ussd_state']) {
             exit;
         }
         break;
-
+ 
     case 'submenu_selection':
         if ($input == '#') {
             // Back to main menu
@@ -234,7 +234,7 @@ switch ($_SESSION['ussd_state']) {
             exit;
         }
         break;
-
+ 
     case 'select_network':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'start';
