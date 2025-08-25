@@ -60,28 +60,27 @@ session_start();
         <h2>USSD Simulator</h2>
         <div class="ussd-display" id="display">
             <?php
-            // When on start state, always rebuild the main menu from DB to reflect latest changes
-            if (isset($_SESSION['ussd_state']) && $_SESSION['ussd_state'] === 'start') {
-                require_once 'db_connect.php';
-                require_once 'menu_manager.php';
-                $menuManager = new MenuManager($pdo);
+            // Always attempt DB-driven menu, but guarantee a fallback display
+            try {
+                // Use absolute paths to avoid include path issues
+                require_once __DIR__ . '/db_connect.php';
+                require_once __DIR__ . '/menu_manager.php';
+                
+                $menuManager = new MenuManager(isset($pdo) ? $pdo : null);
                 $userBalance = 900.00; // Default balance for demo
                 $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
-                $menuItems = $menuManager->getMainMenu($userId, $userBalance);
-                $menuDisplay = $menuManager->buildMenuDisplay($menuItems);
-                echo htmlspecialchars($menuDisplay);
-            } elseif (isset($_SESSION['display'])) {
-                echo htmlspecialchars($_SESSION['display']);
-            } else {
-                // Initial load: build main menu from DB
-                require_once 'db_connect.php';
-                require_once 'menu_manager.php';
-                $menuManager = new MenuManager($pdo);
-                $userBalance = 900.00; // Default balance for demo
-                $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
-                $menuItems = $menuManager->getMainMenu($userId, $userBalance);
-                $menuDisplay = $menuManager->buildMenuDisplay($menuItems);
-                echo htmlspecialchars($menuDisplay);
+                
+                // Prefer session display if set and not the initial welcome
+                if (isset($_SESSION['display']) && (!isset($_SESSION['ussd_state']) || $_SESSION['ussd_state'] !== 'start')) {
+                    echo htmlspecialchars($_SESSION['display']);
+                } else {
+                    $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+                    $menuDisplay = $menuManager->buildMenuDisplay($menuItems);
+                    echo htmlspecialchars($menuDisplay);
+                }
+            } catch (Throwable $e) {
+                // Fallback static menu if anything fails
+                echo htmlspecialchars("Welcome to BRASSICA-PAY USSD Service\n\nPlease enter your choice:\n1. Send Money\n2. Buy Airtime/Data\n3. Investment\n4. Utility Payment\n5. Statement");
             }
             ?>
         </div>
