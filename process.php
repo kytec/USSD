@@ -1171,8 +1171,18 @@ switch ($_SESSION['ussd_state']) {
                     $_SESSION['ussd_state'] = 'enter_utility_account';
                     $_SESSION['display'] = "Enter your Water account number:\n#. Back"; header('Location: index.php'); exit;
                     break;
+                case '3':
+                    $_SESSION['ussd_data']['utility_type'] = 'DSTV';
+                    $_SESSION['ussd_state'] = 'enter_dstv_smartcard';
+                    $_SESSION['display'] = "Enter the smart card number:\n#. Back"; header('Location: index.php'); exit;
+                    break;
+                case '4':
+                    $_SESSION['ussd_data']['utility_type'] = 'GOTV';
+                    $_SESSION['ussd_state'] = 'enter_gotv_iuc';
+                    $_SESSION['display'] = "Enter the IUC number:\n#. Back"; header('Location: index.php'); exit;
+                    break;
                 default:
-                    $_SESSION['display'] = "Invalid option. Please select:\n1. ECG (Electricity)\n2. Water\n#. Back"; header('Location: index.php'); exit;
+                    $_SESSION['display'] = "Invalid option. Please select:\n1. ECG (Electricity)\n2. Water\n3. DSTV\n4. GOTV\n#. Back"; header('Location: index.php'); exit;
                     break;
             }
         }
@@ -1217,19 +1227,13 @@ switch ($_SESSION['ussd_state']) {
                     usort($transactions, function($a, $b) {
                         return strtotime($b['transaction_date']) - strtotime($a['transaction_date']);
                     });
-                    $transactions = array_slice($transactions, 0, 2);
+                    $transactions = array_slice($transactions, 0, 5);
 
-                    $response = "Last 2 Transactions:\n\n";
+                    $response = "Last 5 Transactions:\n\n";
                     $counter = 1;
                     foreach ($transactions as $transaction) {
-                        $date = date('d/m/Y H:i', strtotime($transaction['transaction_date']));
-                        $response .= "{$counter}. {$transaction['type']}\n";
-                        $response .= "   Details: {$transaction['details']}\n";
-                        $response .= "   Amount: GHS " . number_format($transaction['amount'], 2) . "\n";
-                        $response .= "   Date: {$date}\n";
-                        if ($counter < count($transactions)) {
-                            $response .= "\n";
-                        }
+                        $date = date('d/m/Y', strtotime($transaction['transaction_date']));
+                        $response .= "{$counter}. {$transaction['type']} - GHS " . number_format($transaction['amount'], 2) . " - {$date}\n";
                         $counter++;
                     }
                     $response .= "\n#. Back";
@@ -1660,7 +1664,147 @@ switch ($_SESSION['ussd_state']) {
             exit;
         }
         break;
- 
+
+    case 'enter_dstv_smartcard':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'utility_payment';
+            $_SESSION['display'] = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n3. DSTV\n4. GOTV\n#. Back"; header('Location: index.php'); exit;
+        } else {
+            // Dummy DSTV data
+            $dummy_dstv = [
+                ['name' => 'Cecilia Amoah', 'package' => 'COMPE36', 'amt' => 530, 'smartcard' => '1002365761'],
+                ['name' => 'Mr. Kobena Essiel', 'package' => 'EXPLORER', 'amt' => 620, 'smartcard' => '34329700'],
+                ['name' => 'Judith Brago', 'package' => 'COMPE36', 'amt' => 530, 'smartcard' => '8217221211'],
+            ];
+            $found = null;
+            foreach ($dummy_dstv as $dstv) {
+                if ($dstv['smartcard'] === $input) {
+                    $found = $dstv;
+                    break;
+                }
+            }
+            if ($found) {
+                $_SESSION['ussd_data']['dstv_smartcard'] = $found['smartcard'];
+                $_SESSION['ussd_data']['dstv_name'] = $found['name'];
+                $_SESSION['ussd_data']['dstv_package'] = $found['package'];
+                $_SESSION['ussd_data']['dstv_amt'] = $found['amt'];
+                $_SESSION['ussd_state'] = 'dstv_bill_options';
+                $response = "Bill Details:\nName: {$found['name']}, Package: {$found['package']}, Amt: GHS {$found['amt']}\n1. Account Payment\n2. Upgrade/Downgrade\n#. Back";
+                $_SESSION['display'] = $response; header('Location: index.php'); exit;
+            } else {
+                $_SESSION['display'] = "Invalid smart card number. Please enter a valid smart card number:\n#. Back"; header('Location: index.php'); exit;
+            }
+        }
+        break;
+    case 'dstv_bill_options':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_dstv_smartcard';
+            $_SESSION['display'] = "Enter the smart card number:\n#. Back"; header('Location: index.php'); exit;
+        } else if ($input == '1') {
+            // Show options: 1. Confirm to pay, 2. Enter amount
+            $_SESSION['ussd_state'] = 'dstv_account_payment_options';
+            $_SESSION['display'] = "1. Confirm to pay\n2. Enter amount\n#. Back"; header('Location: index.php'); exit;
+        } else if ($input == '2') {
+            // Proceed to upgrade/downgrade (implement as needed)
+            $_SESSION['display'] = "Upgrade/Downgrade feature coming soon!\n#. Back"; header('Location: index.php'); exit;
+        } else {
+            $_SESSION['display'] = "Invalid option.\n1. Account Payment\n2. Upgrade/Downgrade\n#. Back"; header('Location: index.php'); exit;
+        }
+        break;
+    case 'dstv_account_payment_options':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'dstv_bill_options';
+            $response = "Bill Details:\nName: {$_SESSION['ussd_data']['dstv_name']}, Package: {$_SESSION['ussd_data']['dstv_package']}, Amt: GHS {$_SESSION['ussd_data']['dstv_amt']}\n1. Account Payment\n2. Upgrade/Downgrade\n#. Back";
+            $_SESSION['display'] = $response; header('Location: index.php'); exit;
+        } else if ($input == '1') {
+            // Confirm to pay full amount
+            $_SESSION['ussd_state'] = 'dstv_confirm_pin';
+            $amt = $_SESSION['ussd_data']['dstv_amt'];
+            $card = $_SESSION['ussd_data']['dstv_smartcard'];
+            $name = $_SESSION['ussd_data']['dstv_name'];
+            $_SESSION['display'] = "Enter PIN to pay GHS {$amt} to DSTV account {$card} ({$name})\n#. Back"; header('Location: index.php'); exit;
+        } else if ($input == '2') {
+            // Enter custom amount
+            $_SESSION['ussd_state'] = 'dstv_enter_custom_amount';
+            $_SESSION['display'] = "Enter amount to pay:\n#. Back"; header('Location: index.php'); exit;
+        } else {
+            $_SESSION['display'] = "Invalid option.\n1. Confirm to pay\n2. Enter amount\n#. Back"; header('Location: index.php'); exit;
+        }
+        break;
+    case 'dstv_enter_custom_amount':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'dstv_account_payment_options';
+            $_SESSION['display'] = "1. Confirm to pay\n2. Enter amount\n#. Back"; header('Location: index.php'); exit;
+        } else if (is_numeric($input) && $input > 0) {
+            $_SESSION['ussd_data']['dstv_custom_amt'] = $input;
+            $_SESSION['ussd_state'] = 'dstv_confirm_custom_pin';
+            $card = $_SESSION['ussd_data']['dstv_smartcard'];
+            $name = $_SESSION['ussd_data']['dstv_name'];
+            $_SESSION['display'] = "Enter PIN to pay GHS {$input} to DSTV account {$card} ({$name})\n#. Back"; header('Location: index.php'); exit;
+        } else {
+            $_SESSION['display'] = "Invalid amount. Please enter a valid amount:\n#. Back"; header('Location: index.php'); exit;
+        }
+        break;
+    case 'dstv_confirm_pin':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'dstv_account_payment_options';
+            $_SESSION['display'] = "1. Confirm to pay\n2. Enter amount\n#. Back"; header('Location: index.php'); exit;
+        } else if ($input == $correctPin) {
+            // Process payment and show success
+            $_SESSION['ussd_state'] = 'dstv_payment_success';
+            $amt = $_SESSION['ussd_data']['dstv_amt'];
+            $card = $_SESSION['ussd_data']['dstv_smartcard'];
+            $name = $_SESSION['ussd_data']['dstv_name'];
+            $_SESSION['display'] = "DSTV payment successful!\nAccount: {$name}\nSmart Card: {$card}\nAmount: GHS {$amt}\n\n1. Back to main menu"; header('Location: index.php'); exit;
+        } else {
+            $_SESSION['pin_attempts']++;
+            if ($_SESSION['pin_attempts'] >= 3) {
+                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu"; header('Location: index.php'); exit;
+            } else {
+                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
+                $amt = $_SESSION['ussd_data']['dstv_amt'];
+                $card = $_SESSION['ussd_data']['dstv_smartcard'];
+                $name = $_SESSION['ussd_data']['dstv_name'];
+                $_SESSION['display'] = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nEnter PIN to pay GHS {$amt} to DSTV account {$card} ({$name})\n#. Back"; header('Location: index.php'); exit;
+            }
+        }
+        break;
+    case 'dstv_confirm_custom_pin':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'dstv_enter_custom_amount';
+            $_SESSION['display'] = "Enter amount to pay:\n#. Back"; header('Location: index.php'); exit;
+        } else if ($input == $correctPin) {
+            // Process payment and show success
+            $_SESSION['ussd_state'] = 'dstv_payment_success';
+            $amt = $_SESSION['ussd_data']['dstv_custom_amt'];
+            $card = $_SESSION['ussd_data']['dstv_smartcard'];
+            $name = $_SESSION['ussd_data']['dstv_name'];
+            $_SESSION['display'] = "DSTV payment successful!\nAccount: {$name}\nSmart Card: {$card}\nAmount: GHS {$amt}\n\n1. Back to main menu"; header('Location: index.php'); exit;
+        } else {
+            $_SESSION['pin_attempts']++;
+            if ($_SESSION['pin_attempts'] >= 3) {
+                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu"; header('Location: index.php'); exit;
+            } else {
+                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
+                $amt = $_SESSION['ussd_data']['dstv_custom_amt'];
+                $card = $_SESSION['ussd_data']['dstv_smartcard'];
+                $name = $_SESSION['ussd_data']['dstv_name'];
+                $_SESSION['display'] = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nEnter PIN to pay GHS {$amt} to DSTV account {$card} ({$name})\n#. Back"; header('Location: index.php'); exit;
+            }
+        }
+        break;
+    case 'dstv_payment_success':
+        if ($input == '1') {
+            $_SESSION['ussd_state'] = 'start';
+            $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+            $_SESSION['display'] = $menuManager->buildMenuDisplay($menuItems);
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['display'] = "Invalid option. Please select:\n1. Back to main menu"; header('Location: index.php'); exit;
+        }
+        break;
+
 }
  
 $_SESSION['display'] = $response;
