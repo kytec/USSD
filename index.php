@@ -2,6 +2,7 @@
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
+session_set_cookie_params(['path' => '/USSD2/USSD']);
 session_start();
 ?>
 <!DOCTYPE html>
@@ -90,5 +91,6 @@ session_start();
             <button type="submit" name="action" value="cancel">Cancel</button>
         </form>
     </div>
+    <script src="js/ussd.js"></script>
 </body>
 </html>

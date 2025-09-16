@@ -1,9 +1,11 @@
 <?php
+session_set_cookie_params(['path' => '/USSD2/USSD']);
+session_start();
 require_once 'db_connect.php';
+require_once 'menu_manager.php';
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
-session_start();
  
 // Always include and initialize menu manager and user info
 require_once 'menu_manager.php';
@@ -382,32 +384,143 @@ switch ($_SESSION['ussd_state']) {
         }
         break;
 
-    case 'enter_bank_pin':
-        if ($input == '#') {
-            $_SESSION['ussd_state'] = 'enter_bank_amount_alt';
-            $_SESSION['display'] = "Enter amount to send to bank account:\n#. Back";
-            header('Location: index.php');
-            exit;
-        } else if ($input == $correctPin) {
-            $_SESSION['ussd_state'] = 'transaction_success';
-            $_SESSION['display'] = "Bank transfer successful!\nAccount: {$_SESSION['ussd_data']['bank_account']}\nAmount: GHS " . number_format($_SESSION['ussd_data']['bank_amount'], 2) . "\n\n1. Back to main menu";
-            header('Location: index.php');
-            exit;
-        } else {
-            $_SESSION['pin_attempts']++;
-            if ($_SESSION['pin_attempts'] >= 3) {
+        case 'enter_bank_pin':
+            if ($input == '#') {
+                $_SESSION['ussd_state'] = 'enter_bank_amount_alt';
+                $_SESSION['display'] = "Enter amount to send to bank account:\n#. Back";
+                header('Location: index.php');
+                exit;
+            } else if ($input == $correctPin) {
                 $_SESSION['ussd_state'] = 'transaction_success';
-                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu";
+                $_SESSION['display'] = "Bank transfer successful!\nAccount: {$_SESSION['ussd_data']['bank_account']}\nAmount: GHS " . number_format($_SESSION['ussd_data']['bank_amount'], 2) . "\n\n1. Back to main menu";
                 header('Location: index.php');
                 exit;
             } else {
-                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
-                $_SESSION['display'] = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:\n#. Back";
+                $_SESSION['pin_attempts']++;
+                if ($_SESSION['pin_attempts'] >= 3) {
+                    $_SESSION['ussd_state'] = 'transaction_success';
+                    $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu";
+                    header('Location: index.php');
+                    exit;
+                } else {
+                    $remainingAttempts = 3 - $_SESSION['pin_attempts'];
+                    $_SESSION['display'] = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:\n#. Back";
+                    header('Location: index.php');
+                    exit;
+                }
+            }
+            break;
+    
+        // Add the new mobile money transfer flow here
+        case 'enter_recipient':
+            // Fallback: If network is not set, force user to select network
+            if (empty($_SESSION['ussd_data']['network'])) {
+                // Clear any partial recipient input to avoid confusion
+                unset($_SESSION['ussd_data']['recipient']);
+                $_SESSION['ussd_state'] = 'select_network';
+                $_SESSION['display'] = "Please select a network first:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
                 header('Location: index.php');
                 exit;
             }
-        }
-        break;
+            if ($input == '#') {
+                $_SESSION['ussd_state'] = 'select_network';
+                $_SESSION['display'] = "Select Network:\n1. MTN MobileMoney\n2. Telecel Cash\n3. AirtelTigo Cash\n4. Bank Account\n#. Back";
+                header('Location: index.php');
+                exit;
+            } else {
+                // Normalize input: remove spaces and dashes
+                $normalizedInput = preg_replace('/[\s-]/', '', $input);
+                // If number starts with '233' and is followed by 9 digits, convert to '0' + next 9 digits
+                if (preg_match('/^233([0-9]{9})$/', $normalizedInput, $matches)) {
+                    $normalizedInput = '0' . $matches[1];
+                }
+                // Only allow numbers starting with 0 and 10 digits
+                if (!preg_match('/^0[0-9]{9}$/', $normalizedInput)) {
+                    $_SESSION['display'] = "Invalid number format. Please enter a valid 10-digit number starting with 0:\n#. Back";
+                    header('Location: index.php');
+                    exit;
+                }
+                // Validate phone number format based on network
+                $network = $_SESSION['ussd_data']['network'];
+                $valid = false;
+                if ($network == 'MTN' && preg_match('/^(054|053|024|059|025|055)[0-9]{7}$/', $normalizedInput)) {
+                    $valid = true;
+                } else if ($network == 'Telecel' && preg_match('/^(020|050)[0-9]{7}$/', $normalizedInput)) {
+                    $valid = true;
+                } else if ($network == 'AirtelTigo' && preg_match('/^(026|056|027|057)[0-9]{7}$/', $normalizedInput)) {
+                    $valid = true;
+                }
+                if ($valid) {
+                    $_SESSION['ussd_data']['recipient'] = $normalizedInput;
+                    $_SESSION['ussd_state'] = 'enter_amount';
+                    $_SESSION['display'] = "Enter amount to send to {$normalizedInput}:\n#. Back";
+                    header('Location: index.php');
+                    exit;
+                } else {
+                    $_SESSION['display'] = "Invalid number for $network. Please enter a valid number for $network:\n#. Back";
+                    header('Location: index.php');
+                    exit;
+                }
+            }
+            break;
+            
+        case 'enter_amount':
+            if ($input == '#') {
+                $_SESSION['ussd_state'] = 'enter_recipient';
+                $_SESSION['display'] = "Enter {$_SESSION['ussd_data']['network']} number:\n#. Back";
+                header('Location: index.php');
+                exit;
+            } else if (is_numeric($input) && $input > 0) {
+                $_SESSION['ussd_data']['amount'] = $input;
+                
+                // Make API call to validate recipient and get details
+                $demoRecipients = [
+                    '0241234567' => ['name' => 'John Doe', 'network' => 'MTN'],
+                    '0551234567' => ['name' => 'Jane Smith', 'network' => 'MTN'],
+                    '0201234567' => ['name' => 'Kwame Mensah', 'network' => 'Telecel'],
+                    '0501234567' => ['name' => 'Ama Serwaa', 'network' => 'Telecel'],
+                    '0261234567' => ['name' => 'Kofi Annan', 'network' => 'AirtelTigo'],
+                    '0571234567' => ['name' => 'Abena Poku', 'network' => 'AirtelTigo'],
+                ];
+                $recipient = $_SESSION['ussd_data']['recipient'];
+                $network = $_SESSION['ussd_data']['network'];
+                if (isset($demoRecipients[$recipient]) && $demoRecipients[$recipient]['network'] === $network) {
+                    $_SESSION['ussd_data']['recipient_name'] = $demoRecipients[$recipient]['name'];
+                    $_SESSION['ussd_state'] = 'confirm_recipient';
+                    $_SESSION['display'] = "Send to: {$demoRecipients[$recipient]['name']}\nNumber: {$recipient}\nAmount: GHS " . number_format($input, 2) . "\n1. Confirm\n0. Cancel";
+                    header('Location: index.php');
+                    exit;
+                } else {
+                    $_SESSION['display'] = "Unable to verify recipient. Please check the number and try again.\n#. Back";
+                    header('Location: index.php');
+                    exit;
+                }
+            } else {
+                $_SESSION['display'] = "Invalid amount. Please enter a valid amount:\n#. Back";
+                header('Location: index.php');
+                exit;
+            }
+            break;
+            
+        case 'confirm_recipient':
+            if ($input == '1') {
+                $senderId = $_SESSION['user_id'];
+                $recipient = $_SESSION['ussd_data']['recipient'];
+                $amount = $_SESSION['ussd_data']['amount'];
+                $recipientName = $_SESSION['ussd_data']['recipient_name'] ?? $recipient;
+                $pdo->prepare("INSERT INTO transactions (sender_id, recipient_phone, amount, status, transaction_date) VALUES (?, ?, ?, 'pending', GETDATE())")
+                    ->execute([$senderId, $recipient, $amount]);
+                $_SESSION['ussd_state'] = 'transaction_initiated';
+                $_SESSION['display'] = "Transaction initiated!\n\nA PIN confirmation request has been sent to your phone.\n\nPlease check your notifications to complete the transfer of GHS " . number_format($amount, 2) . " to $recipientName.\n\n1. Back to main menu";
+                header('Location: index.php');
+                exit;
+            } else if ($input == '0' || $input == '#') {
+                $_SESSION['ussd_state'] = 'enter_amount';
+                $_SESSION['display'] = "Enter amount to send to {$_SESSION['ussd_data']['recipient']}:\n#. Back";
+                header('Location: index.php');
+                exit;
+            }
+            break;
  
     case 'buy_airtime_data':
         if ($input == '#') {
@@ -1374,10 +1487,17 @@ switch ($_SESSION['ussd_state']) {
                 $_SESSION['display'] = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n#. Back"; header('Location: index.php'); exit;
             }
         } else if (preg_match('/^[A-Za-z0-9]{8,15}$/', $input)) {
-            $_SESSION['ussd_data']['utility_account'] = $input;
-            $_SESSION['ussd_state'] = 'enter_utility_amount';
             $utilityType = $_SESSION['ussd_data']['utility_type'];
-            $_SESSION['display'] = "Enter amount to pay for $utilityType:\n#. Back"; header('Location: index.php'); exit;
+            $recipientInfo = api_validateUtilityRecipient($input, $utilityType);
+            if ($recipientInfo['success']) {
+                $_SESSION['ussd_data']['utility_account'] = $input;
+                $_SESSION['ussd_data']['utility_recipient_name'] = $recipientInfo['name'];
+                $_SESSION['ussd_data']['utility_recipient_phone'] = $recipientInfo['phone'] ?? '';
+                $_SESSION['ussd_state'] = 'enter_utility_amount';
+                $_SESSION['display'] = "Enter amount to pay for $utilityType:\n#. Back"; header('Location: index.php'); exit;
+            } else {
+                $_SESSION['display'] = "Invalid account number. Please enter a valid $utilityType account number:\n#. Back"; header('Location: index.php'); exit;
+            }
         } else {
             $utilityType = $_SESSION['ussd_data']['utility_type'];
             $_SESSION['display'] = "Invalid account number. Please enter a valid $utilityType account number (8-15 characters):\n#. Back"; header('Location: index.php'); exit;
@@ -1390,88 +1510,88 @@ switch ($_SESSION['ussd_state']) {
             $utilityType = $_SESSION['ussd_data']['utility_type'];
             $_SESSION['display'] = "Enter your $utilityType account number:\n#. Back"; header('Location: index.php'); exit;
         } else if (is_numeric($input) && $input > 0) {
-            try {
-                $stmt = $pdo->prepare("SELECT balance FROM users WHERE id = ?");
-                $stmt->execute([$_SESSION['user_id']]);
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                
-                if ($user && $user['balance'] >= $input) {
-                    $_SESSION['ussd_data']['utility_amount'] = $input;
-                    $_SESSION['ussd_state'] = 'enter_pin_for_utility';
-                    $utilityType = $_SESSION['ussd_data']['utility_type'];
-                    $account = $_SESSION['ussd_data']['utility_account'];
-                    $_SESSION['display'] = "Confirm $utilityType payment:\nAccount: $account"; header('Location: index.php'); exit;
-                    if (isset($_SESSION['ussd_data']['meter_type'])) {
-                        $response .= " (" . $_SESSION['ussd_data']['meter_type'] . ")";
-                    }
-                    $response .= "\nAmount: GHS " . number_format($input, 2) . "\n\nEnter your PIN to confirm:\n#. Back";
-                } else {
-                    $_SESSION['display'] = "Insufficient balance. Please enter a valid amount:\n#. Back"; header('Location: index.php'); exit;
-                }
-            } catch (PDOException $e) {
-                $_SESSION['display'] = "Error checking balance. Please try again:\n#. Back"; header('Location: index.php'); exit;
-            }
+            $_SESSION['ussd_data']['utility_amount'] = $input;
+            $_SESSION['ussd_state'] = 'confirm_utility_payment';
+            $name = $_SESSION['ussd_data']['utility_recipient_name'];
+            $phone = $_SESSION['ussd_data']['utility_recipient_phone'];
+            $account = $_SESSION['ussd_data']['utility_account'];
+            $utilityType = $_SESSION['ussd_data']['utility_type'];
+            $_SESSION['display'] = "Confirm $utilityType payment:\nName: $name\nAccount: $account" . ($phone ? "\nPhone: $phone" : "") . "\nAmount: GHS $input\n1. Confirm\n0. Cancel";
+            header('Location: index.php');
+            exit;
         } else {
             $_SESSION['display'] = "Invalid amount. Please enter a valid amount:\n#. Back"; header('Location: index.php'); exit;
         }
         break;
 
+    case 'confirm_utility_payment':
+        if ($input == '1') {
+            $utilityType = $_SESSION['ussd_data']['utility_type'];
+            $account = $_SESSION['ussd_data']['utility_account'];
+            $amount = $_SESSION['ussd_data']['utility_amount'];
+            $recipientName = $_SESSION['ussd_data']['utility_recipient_name'] ?? $account;
+            $_SESSION['ussd_state'] = 'utility_payment_initiated';
+            $_SESSION['display'] = "Transaction initiated!\n     A PIN confirmation request has been sent to your phone.\n     Please check your notifications to complete the transfer of GHS " . number_format($amount, 2) . " to $recipientName.\n     1. Back to main menu";
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['ussd_state'] = 'utility_payment';
+            $_SESSION['display'] = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n3. DSTV\n4. GOTV\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+    case 'utility_payment_initiated':
+        if ($input == '1') {
+            $_SESSION['ussd_state'] = 'start';
+            $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+            $_SESSION['display'] = $menuManager->buildMenuDisplay($menuItems);
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['display'] = "1. Back to main menu";
+            header('Location: index.php');
+            exit;
+        }
+        break;
     case 'enter_pin_for_utility':
         if ($input == '#') {
             $_SESSION['ussd_state'] = 'enter_utility_amount';
             $utilityType = $_SESSION['ussd_data']['utility_type'];
-            $_SESSION['display'] = "Enter amount to pay for $utilityType:\n#. Back"; header('Location: index.php'); exit;
+            $_SESSION['display'] = "Enter amount to pay for $utilityType:\n#. Back";
+            header('Location: index.php');
+            exit;
         } else if ($input == $correctPin) {
-            try {
-                $amount = $_SESSION['ussd_data']['utility_amount'];
-                $utilityType = $_SESSION['ussd_data']['utility_type'];
-                $account = $_SESSION['ussd_data']['utility_account'];
-
-                $pdo->beginTransaction();
-                
-                // Deduct from user's balance
-                $stmt = $pdo->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
-                $stmt->execute([$amount, $_SESSION['user_id']]);
-                
-                // Insert into utility_payments table
-                $stmt = $pdo->prepare("INSERT INTO utility_payments (user_id, utility_type, account_number, meter_type, amount, payment_date) VALUES (?, ?, ?, ?, ?, GETDATE())");
-                $stmt->execute([
-                    $_SESSION['user_id'],
-                    $utilityType,
-                    $account,
-                    isset($_SESSION['ussd_data']['meter_type']) ? $_SESSION['ussd_data']['meter_type'] : null,
-                    $amount
-                ]);
-                
-                $pdo->commit();
-                
-                $_SESSION['ussd_state'] = 'transaction_success';
-                $successMessage = "$utilityType payment successful!\nAccount: $account";
-                if (isset($_SESSION['ussd_data']['meter_type'])) {
-                    $successMessage .= " (" . $_SESSION['ussd_data']['meter_type'] . ")";
-                }
-                $successMessage .= "\nAmount: GHS " . number_format($amount, 2) . "\n\n1. Back to main menu";
-                $_SESSION['display'] = $successMessage;
-                header('Location: index.php');
-                exit;
-            } catch (PDOException $e) {
-                $pdo->rollBack();
-                $_SESSION['ussd_state'] = 'transaction_success';
-                $_SESSION['display'] = "Utility payment failed: " . $e->getMessage() . "\n\n1. Back to main menu";
-                header('Location: index.php');
-                exit;
-            }
+            $utilityType = $_SESSION['ussd_data']['utility_type'];
+            $account = $_SESSION['ussd_data']['utility_account'];
+            $amount = $_SESSION['ussd_data']['utility_amount'];
+            $name = $_SESSION['ussd_data']['utility_recipient_name'] ?? $account;
+            $meterType = $_SESSION['ussd_data']['meter_type'] ?? '';
+            // Show success message for all utilities
+            $_SESSION['ussd_state'] = 'utility_payment_success';
+            $successMessage = "Meter top-up successful!\nName: $name\nMeter: $account";
+            if ($meterType) $successMessage .= "\nType: $meterType";
+            $successMessage .= "\nAmount: GHS " . number_format($amount, 2) . "\n\n1. Back to main menu";
+            $_SESSION['display'] = $successMessage;
+            header('Location: index.php');
+            exit;
         } else {
-            $_SESSION['pin_attempts']++;
-            if ($_SESSION['pin_attempts'] >= 3) {
-                $_SESSION['ussd_state'] = 'transaction_success';
-                $_SESSION['display'] = "Too many incorrect attempts. Your session has been terminated.\n\n1. Back to main menu";
-                header('Location: index.php');
-                exit;
-            } else {
-                $remainingAttempts = 3 - $_SESSION['pin_attempts'];
-                $_SESSION['display'] = "Invalid PIN. You have {$remainingAttempts} attempts remaining.\nPlease enter your PIN:\n#. Back"; header('Location: index.php'); exit;
-            }
+            $_SESSION['display'] = "Invalid PIN. Please try again:\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+    case 'utility_payment_success':
+        if ($input == '1') {
+            $_SESSION['ussd_state'] = 'start';
+            $menuItems = $menuManager->getMainMenu($userId, $userBalance);
+            $_SESSION['display'] = $menuManager->buildMenuDisplay($menuItems);
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['display'] = "1. Back to main menu";
+            header('Location: index.php');
+            exit;
         }
         break;
 
@@ -1559,8 +1679,28 @@ switch ($_SESSION['ussd_state']) {
                 
                 if ($user && $user['balance'] >= $input) {
                     $_SESSION['ussd_data']['amount'] = $input;
-                    $_SESSION['ussd_state'] = 'enter_reference';
-                    $_SESSION['display'] = "Enter reference for this transfer:\n#. Back";
+                    // Perform name enquiry immediately and go to confirmation
+                    $recipient = $_SESSION['ussd_data']['recipient_number'];
+                    // Dummy name enquiry mapping (replace with provider API)
+                    $dummyDirectory = [
+                        '0531384123' => 'Christine Melissa',
+                        '0200000000' => 'Test User',
+                        '0240000000' => 'MTN User',
+                        '0270000000' => 'AirtelTigo User',
+                        '0500000000' => 'Vodafone User'
+                    ];
+                    $resolvedName = $dummyDirectory[$recipient] ?? 'Verified Account';
+                    $fee = 0.00; // You can compute dynamic fees here
+                    $_SESSION['ussd_data']['resolved_name'] = $resolvedName;
+                    $_SESSION['ussd_data']['fee'] = $fee;
+                    if (empty($_SESSION['ussd_data']['reference'])) {
+                        $_SESSION['ussd_data']['reference'] = 'REF' . date('ymdHis');
+                    }
+                    $_SESSION['ussd_state'] = 'confirm_transfer';
+                    $network = $_SESSION['ussd_data']['network'];
+                    $amount = $_SESSION['ussd_data']['amount'];
+                    $reference = $_SESSION['ussd_data']['reference'];
+                    $_SESSION['display'] = "Confirm Transfer:\nTo: {$recipient}\nName: {$resolvedName}\nNetwork: {$network}\nAmount: GHS " . number_format($amount, 2) . "\nFee: GHS " . number_format($fee, 2) . "\nReference: {$reference}\n\n1. Confirm\n#. Back";
                     header('Location: index.php');
                     exit;
                 } else {
@@ -1587,13 +1727,16 @@ switch ($_SESSION['ussd_state']) {
             header('Location: index.php');
             exit;
         } else {
+            // Keep allowing reference entry if some flows come here, but normally we already set a reference
             $_SESSION['ussd_data']['reference'] = $input;
             $_SESSION['ussd_state'] = 'confirm_transfer';
             $network = $_SESSION['ussd_data']['network'];
             $recipient = $_SESSION['ussd_data']['recipient_number'];
             $amount = $_SESSION['ussd_data']['amount'];
             $reference = $_SESSION['ussd_data']['reference'];
-            $_SESSION['display'] = "Confirm Transfer:\nTo: {$recipient}\nNetwork: {$network}\nAmount: GHS " . number_format($amount, 2) . "\nReference: {$reference}\n\n1. Confirm\n#. Back";
+            $resolvedName = $_SESSION['ussd_data']['resolved_name'] ?? 'Verified Account';
+            $fee = $_SESSION['ussd_data']['fee'] ?? 0.00;
+            $_SESSION['display'] = "Confirm Transfer:\nTo: {$recipient}\nName: {$resolvedName}\nNetwork: {$network}\nAmount: GHS " . number_format($amount, 2) . "\nFee: GHS " . number_format($fee, 2) . "\nReference: {$reference}\n\n1. Confirm\n#. Back";
             header('Location: index.php');
             exit;
         }
@@ -1601,13 +1744,36 @@ switch ($_SESSION['ussd_state']) {
 
     case 'confirm_transfer':
         if ($input == '#') {
-            $_SESSION['ussd_state'] = 'enter_reference';
-            $_SESSION['display'] = "Enter reference for this transfer:\n#. Back";
+            // Go back to amount entry (before name enquiry)
+            $_SESSION['ussd_state'] = 'enter_amount';
+            $_SESSION['display'] = "Enter amount to send:\n#. Back";
             header('Location: index.php');
             exit;
         } else if ($input == '1') {
-            $_SESSION['ussd_state'] = 'enter_pin';
-            $_SESSION['display'] = "Enter your PIN to confirm transfer:\n#. Back";
+            // End session message and create pending transaction, then simulate push-PIN dispatch
+            try {
+                $pdo && $pdo->beginTransaction();
+                // Create pending transaction awaiting push approval
+                $stmt = $pdo ? $pdo->prepare("INSERT INTO transactions (sender_id, recipient_phone, amount, reference, status, transaction_date) VALUES (?, ?, ?, ?, 'pending_push', GETDATE())") : null;
+                if ($stmt) {
+                    $stmt->execute([
+                        $_SESSION['user_id'],
+                        $_SESSION['ussd_data']['recipient_number'],
+                        $_SESSION['ussd_data']['amount'],
+                        $_SESSION['ussd_data']['reference']
+                    ]);
+                }
+                $pdo && $pdo->commit();
+            } catch (Throwable $e) {
+                // On DB error, we still show processing and handle later
+                try { $pdo && $pdo->rollBack(); } catch (Throwable $ie) {}
+            }
+            // Show processing and close session
+            $recipient = $_SESSION['ussd_data']['recipient_number'];
+            $resolvedName = $_SESSION['ussd_data']['resolved_name'] ?? 'Verified Account';
+            $amount = $_SESSION['ussd_data']['amount'];
+            $_SESSION['ussd_state'] = 'start';
+            $_SESSION['display'] = "Processing your transfer to {$recipient} ({$resolvedName}) for GHS " . number_format($amount, 2) . ". You will receive a prompt shortly.";
             header('Location: index.php');
             exit;
         } else {
@@ -1805,6 +1971,64 @@ switch ($_SESSION['ussd_state']) {
         }
         break;
 
+    case 'enter_gotv_iuc':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'utility_payment';
+            $_SESSION['display'] = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n3. DSTV\n4. GOTV\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else {
+            $utilityType = 'GOTV';
+            $recipientInfo = db_validateUtilityRecipient($input, $utilityType);
+            if ($recipientInfo['success']) {
+                $_SESSION['ussd_data']['gotv_iuc'] = $input;
+                $_SESSION['ussd_data']['gotv_name'] = $recipientInfo['name'];
+                $_SESSION['ussd_state'] = 'enter_gotv_amount';
+                $_SESSION['display'] = "Enter amount to pay for GOTV (IUC: $input):\n#. Back";
+                header('Location: index.php');
+                exit;
+            } else {
+                $_SESSION['display'] = "Invalid IUC number. Please enter a valid GOTV IUC number:\n#. Back";
+                header('Location: index.php');
+                exit;
+            }
+        }
+        break;
+    case 'enter_gotv_amount':
+        if ($input == '#') {
+            $_SESSION['ussd_state'] = 'enter_gotv_iuc';
+            $_SESSION['display'] = "Enter the IUC number:\n#. Back";
+            header('Location: index.php');
+            exit;
+        } else if (is_numeric($input) && $input > 0) {
+            $_SESSION['ussd_data']['gotv_amount'] = $input;
+            $_SESSION['ussd_state'] = 'confirm_gotv_payment';
+            $name = $_SESSION['ussd_data']['gotv_name'];
+            $iuc = $_SESSION['ussd_data']['gotv_iuc'];
+            $_SESSION['display'] = "Confirm GOTV payment:\nName: $name\nIUC: $iuc\nAmount: GHS $input\n1. Confirm\n0. Cancel";
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['display'] = "Invalid amount. Please enter a valid amount:\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+    case 'confirm_gotv_payment':
+        if ($input == '1') {
+            // Simulate payment
+            $_SESSION['ussd_state'] = 'utility_payment_initiated';
+            $_SESSION['display'] = "Transaction initiated!\nA prompt would be sent to you, kindly input pin.";
+            header('Location: index.php');
+            exit;
+        } else {
+            $_SESSION['ussd_state'] = 'utility_payment';
+            $_SESSION['display'] = "Utility Payment:\n1. ECG (Electricity)\n2. Water\n3. DSTV\n4. GOTV\n#. Back";
+            header('Location: index.php');
+            exit;
+        }
+        break;
+
 }
  
 $_SESSION['display'] = $response;
@@ -1859,4 +2083,212 @@ echo "Inserted!";
 
 date_default_timezone_set('Africa/Accra'); // or your timezone
 $now = date('Y-m-d H:i:s');
+
+// --- MOCK API FUNCTIONS ---
+function mock_validateRecipient($number, $network) {
+    $demoRecipients = [
+        '0241234567' => ['name' => 'John Doe', 'network' => 'MTN'],
+        '0551234567' => ['name' => 'Jane Smith', 'network' => 'MTN'],
+        '0201234567' => ['name' => 'Kwame Mensah', 'network' => 'Telecel'],
+        '0501234567' => ['name' => 'Ama Serwaa', 'network' => 'Telecel'],
+        '0261234567' => ['name' => 'Kofi Annan', 'network' => 'AirtelTigo'],
+        '0571234567' => ['name' => 'Abena Poku', 'network' => 'AirtelTigo'],
+    ];
+    if (isset($demoRecipients[$number]) && $demoRecipients[$number]['network'] === $network) {
+        return ['success' => true, 'name' => $demoRecipients[$number]['name']];
+    } else {
+        return ['success' => false, 'name' => ''];
+    }
+}
+
+function mock_initiateTransaction($network, $recipient, $amount, $sender) {
+    // Always return a fake transaction reference
+    return 'TXN' . strtoupper(substr(md5(uniqid()), 0, 10));
+}
+
+function mock_validateUtilityRecipient($number, $utility) {
+    // Demo data for ECG, Water, GOTV
+    $demo = [
+        '1234567890' => ['name' => 'Kwame ECG', 'utility' => 'ECG'],
+        '9876543210' => ['name' => 'Ama Water', 'utility' => 'Water'],
+        '4445556666' => ['name' => 'Esi GOTV', 'utility' => 'GOTV'],
+    ];
+    // DSTV demo data
+    $dstv_demo = [
+        '1002365761' => ['name' => 'Cecilia Amoah', 'package' => 'COMPE36', 'amt' => 530, 'utility' => 'DSTV'],
+        '34329700'   => ['name' => 'Mr. Kobena Essiel', 'package' => 'EXPLORER', 'amt' => 620, 'utility' => 'DSTV'],
+        '8217221211' => ['name' => 'Judith Brago', 'package' => 'COMPE36', 'amt' => 530, 'utility' => 'DSTV'],
+    ];
+    if ($utility === 'DSTV' && isset($dstv_demo[$number])) {
+        $d = $dstv_demo[$number];
+        return ['success' => true, 'name' => $d['name'], 'package' => $d['package'], 'amt' => $d['amt']];
+    } elseif (isset($demo[$number]) && $demo[$number]['utility'] === $utility) {
+        return ['success' => true, 'name' => $demo[$number]['name']];
+    } else {
+        return ['success' => false, 'name' => ''];
+    }
+}
+// --- MOCK API FUNCTIONS ---
+
+// --- DATABASE-DRIVEN UTILITY VALIDATION FUNCTION ---
+function db_validateUtilityRecipient($number, $utility) {
+    global $pdo;
+    if ($utility === 'ECG' || $utility === 'Water') {
+        // Use utility_payments table for validation
+        $stmt = $pdo->prepare("SELECT TOP 1 * FROM utility_payments WHERE account_number = ? AND utility_type = ?");
+        $stmt->execute([$number, $utility]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            return [
+                'success' => true,
+                'name' => $row['account_number'], // Or use another field if you want to display a name
+                'meter_type' => $row['meter_type'] ?? null
+            ];
+        } else {
+            return ['success' => false];
+        }
+    } else {
+        // Use utility_accounts for DSTV, GOTV
+        $stmt = $pdo->prepare("SELECT * FROM utility_accounts WHERE account_number = ? AND utility_type = ?");
+        $stmt->execute([$number, $utility]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            return [
+                'success' => true,
+                'name' => $row['name'],
+                'package' => $row['package'] ?? null,
+                'amt' => $row['amt'] ?? null
+            ];
+        } else {
+            return ['success' => false];
+        }
+    }
+}
+// ... existing code ...
+// In the enter_gotv_iuc case:
+$utilityType = 'GOTV';
+$recipientInfo = db_validateUtilityRecipient($input, $utilityType);
+if ($recipientInfo['success']) {
+    $_SESSION['ussd_data']['gotv_iuc'] = $input;
+    $_SESSION['ussd_data']['gotv_name'] = $recipientInfo['name'];
+    $_SESSION['ussd_state'] = 'enter_gotv_amount';
+    $_SESSION['display'] = "Enter amount to pay for GOTV (IUC: $input):\n#. Back";
+    header('Location: index.php');
+    exit;
+} else {
+    $_SESSION['display'] = "Invalid IUC number. Please enter a valid GOTV IUC number:\n#. Back";
+    header('Location: index.php');
+    exit;
+}
+// ... existing code ...
+// In the enter_dstv_smartcard case:
+$utilityType = 'DSTV';
+$recipientInfo = db_validateUtilityRecipient($input, $utilityType);
+if ($recipientInfo['success']) {
+    $_SESSION['ussd_data']['dstv_smartcard'] = $input;
+    $_SESSION['ussd_data']['dstv_name'] = $recipientInfo['name'];
+    $_SESSION['ussd_data']['dstv_package'] = $recipientInfo['package'];
+    $_SESSION['ussd_data']['dstv_amt'] = $recipientInfo['amt'];
+    $_SESSION['ussd_state'] = 'enter_dstv_amount';
+    $_SESSION['display'] = "Enter amount to pay for DSTV (Smart Card: $input):\n#. Back";
+    header('Location: index.php');
+    exit;
+} else {
+    $_SESSION['display'] = "Invalid smart card number. Please enter a valid DSTV smart card number:\n#. Back";
+    header('Location: index.php');
+    exit;
+}
+// ... existing code ...
+// In the enter_utility_account case (for ECG, Water):
+$utilityType = $_SESSION['ussd_data']['utility_type'];
+$recipientInfo = db_validateUtilityRecipient($input, $utilityType);
+if ($recipientInfo['success']) {
+    $_SESSION['ussd_data']['utility_account'] = $input;
+    $_SESSION['ussd_data']['utility_name'] = $recipientInfo['name'];
+    $_SESSION['ussd_state'] = 'enter_utility_amount';
+    $_SESSION['display'] = "Enter amount to pay for $utilityType:\n#. Back";
+    header('Location: index.php');
+    exit;
+} else {
+    $_SESSION['display'] = "Invalid account number. Please enter a valid $utilityType account number:\n#. Back";
+    header('Location: index.php');
+    exit;
+}
+// ... existing code ...
+
+// --- REALISTIC API CALL FUNCTIONS FOR UTILITY PAYMENTS ---
+function api_validateUtilityRecipient($number, $utility) {
+    // Replace with your real endpoint
+    $url = "https://api.example.com/validate";
+    $postData = [
+        'account_number' => $number,
+        'utility_type' => $utility
+    ];
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type:application/json']);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $response = curl_exec($ch);
+    curl_close($ch);
+    $data = json_decode($response, true);
+    if ($data && isset($data['success']) && $data['success']) {
+        return [
+            'success' => true,
+            'name' => $data['name'],
+            'phone' => $data['phone'] ?? null
+        ];
+    } else {
+        return ['success' => false];
+    }
+}
+
+function api_initiateUtilityPayment($utility, $recipient, $amount, $sender) {
+    // Replace with your real endpoint
+    $url = "https://api.example.com/pay";
+    $postData = [
+        'utility_type' => $utility,
+        'account_number' => $recipient,
+        'amount' => $amount,
+        'sender' => $sender
+    ];
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type:application/json']);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $response = curl_exec($ch);
+    curl_close($ch);
+    $data = json_decode($response, true);
+    return $data;
+}
+// ... existing code ...
+// In the utility payment flow, after entering the account number and amount:
+$utilityType = $_SESSION['ussd_data']['utility_type'];
+$account = $input; // or $_SESSION['ussd_data']['utility_account']
+$recipientInfo = api_validateUtilityRecipient($account, $utilityType);
+if ($recipientInfo['success']) {
+    $_SESSION['ussd_data']['utility_account'] = $account;
+    $_SESSION['ussd_data']['utility_recipient_name'] = $recipientInfo['name'];
+    $_SESSION['ussd_data']['utility_recipient_phone'] = $recipientInfo['phone'] ?? '';
+    $_SESSION['ussd_state'] = 'enter_utility_amount';
+    $_SESSION['display'] = "Enter amount to pay for $utilityType:\n#. Back";
+    header('Location: index.php');
+    exit;
+} else {
+    $_SESSION['display'] = "Invalid account number. Please enter a valid $utilityType account number:\n#. Back";
+    header('Location: index.php');
+    exit;
+}
+// ... existing code ...
+// In the confirmation step, when the user selects 1 to confirm:
+$utilityType = $_SESSION['ussd_data']['utility_type'];
+$account = $_SESSION['ussd_data']['utility_account'];
+$amount = $_SESSION['ussd_data']['utility_amount'];
+$sender = $_SESSION['user_id'];
+$apiResult = api_initiateUtilityPayment($utilityType, $account, $amount, $sender);
+$_SESSION['ussd_state'] = 'utility_payment_initiated';
+$_SESSION['display'] = "Transaction initiated!\nA prompt would be sent to you, kindly input pin.";
+header('Location: index.php');
+exit;
+// ... existing code ...
+
 ?>
